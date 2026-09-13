@@ -19,8 +19,8 @@ A tool to check compliance with roster requirements for the Rummy Wars fantasy b
 ## Sample Output
 ```
 2026-09-13 14:00:40 | INFO     | main | Successfully loaded 53 players.
-2026-09-13 14:00:40 | INFO     | utils | Does not exceed MiLB roster limit
-2026-09-13 14:00:40 | INFO     | utils | Does not exceed IL roster limit
+2026-09-13 14:00:40 | INFO     | utils | Does not exceed MiLB roster limit: 20
+2026-09-13 14:00:40 | INFO     | utils | Does not exceed IL roster limit: 7
 2026-09-13 14:00:41 | DEBUG    | utils | Ike Irish All-Time MLB AB: 0
 2026-09-13 14:00:41 | DEBUG    | utils | Tre' Morgan All-Time MLB AB: 0
 2026-09-13 14:00:42 | DEBUG    | utils | Dauri Fernandez All-Time MLB AB: 0

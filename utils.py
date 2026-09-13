@@ -172,14 +172,14 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
     if minors_count > max_minors:
         violations.append(f"Exceeded Minors Slot Limit: {minors_count}/{max_minors}")
     else:
-        LOGGER.info("Does not exceed MiLB roster limit")
+        LOGGER.info(f"Does not exceed MiLB roster limit: {minors_count}")
         
     # Rule 2: Injured Reserve limits
     il_count = roster.count_by_status("Injured")
     if il_count > max_il:
         violations.append(f"Exceeded Injured Reserve Limit: {il_count}/{max_il}")
     else:
-        LOGGER.info("Does not exceed IL roster limit")
+        LOGGER.info(f"Does not exceed IL roster limit: {il_count}")
         
     # Rule 3: Check for illegal position slots
     for player in roster.get_by_status("Active"):
