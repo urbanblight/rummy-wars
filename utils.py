@@ -180,11 +180,6 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
         violations.append(f"Exceeded Injured Reserve Limit: {il_count}/{max_il}")
     else:
         LOGGER.info(f"Does not exceed IL roster limit: {il_count}")
-        
-    # Rule 3: Check for illegal position slots
-    for player in roster.get_by_status("Active"):
-        if player.roster_slot not in player.eligible_positions and player.roster_slot not in ['U', 'DH', 'P']:
-            violations.append(f"Illegal Slot: {player.name} in slot '{player.roster_slot}' but only eligible for {player.eligible_positions}")
 
     # BEGIN CHECKING DATA OUTSIDE CSV
 
