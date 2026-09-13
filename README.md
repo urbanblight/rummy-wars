@@ -5,7 +5,7 @@ A tool to check compliance with roster requirements for the Rummy Wars fantasy b
 ## Installation
  `git clone https://github.com/urbanblight/rummy-wars/`
  
- `pip install requirements.xt`
+ `python3 -m pip install -r requirements.txt`
 
 ## Usage
 
