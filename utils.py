@@ -55,7 +55,7 @@ def get_mlbam_id_by_name(cbs_name: str) -> int | None:
 
     people = res.json().get("people", [])
     if not people:
-        LOGGER.error(f"Unable to match CBS name '{cbs_name}' to MLB player")
+        LOGGER.debug(f"Unable to match CBS name '{cbs_name}' to MLB player")
         return None
     # Exact case-insensitive match check
     for person in people:
@@ -188,30 +188,33 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
     for player in roster.get_by_status("Minors"):
         try:
             mlbam_id = get_mlbam_id_by_name(player.name)
-            stats = get_mlb_career_totals(mlbam_id) if mlbam_id else None
+            if not mlbam_id:
+                pass
+            else:
+                stats = get_mlb_career_totals(mlbam_id) if mlbam_id else None
+            if not stats:
+                pass
+            else:
+                if player.player_type == 'Batter':
+                    try:
+                        if stats['ab'] > 130:
+                            LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}).")
+                        else:
+                            LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
+                    except Exception as e:  # noqa: BLE001
+                        raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
+                elif player.player_type == 'Pitcher':
+                    try:
+                        if stats['ip'] > 50:
+                            LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}).")
+                        else:
+                            LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
+                    except Exception as e: # noqa: BLE001
+                            raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
+                else:
+                    LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
 
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
-        if not stats:
-                LOGGER.warning(f"Unable to verify stats for {player.name}: none found")
-        else:
-            if player.player_type == 'Batter':
-                try:
-                    if stats['ab'] > 130:
-                        LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}).")
-                    else:
-                        LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
-                except Exception as e:  # noqa: BLE001
-                    raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
-            elif player.player_type == 'Pitcher':
-                try:
-                    if stats['ip'] > 50:
-                        LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}).")
-                    else:
-                        LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
-                except Exception as e: # noqa: BLE001
-                        raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
-            else:
-                LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
-            
+         
     return violations
