@@ -27,8 +27,14 @@ def setup_logger(
 
     # Console Handler (Outputs INFO and above to terminal)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+
+    # File Handler (Outputs DEBUG and above to app.log file)
+    file_handler = logging.FileHandler('rummy-wars.log', encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
     return logger
