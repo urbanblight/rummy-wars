@@ -63,15 +63,16 @@ def get_mlbam_id_by_name(cbs_name: str) -> int | None:
         if full_name.lower() == clean_name.lower():
             return int(person["id"])
 
-    # Fallback to first match returned by MLB search engine
-    return int(people[0]["id"])
+    # Fallback to the youngest match returned by MLB search engine
+    return int(max(people, key=lambda person: person.birthDate)["id"])
 
 def parse_cbs_player_string(player_str: str):
     """
     Parses 'Name Pos1,Pos2 | TEAM' into (name, [positions], team).
     Example: 'Caleb Durbin 2B,3B | BOS' -> ('Caleb Durbin', ['2B', '3B'], 'BOS')
     """
-    pattern = r"^(.*?)\s+([A-Z0-9,\s]+)\s*\|\s*([A-Z]{2,3})$"
+    # Restrict position characters to upper/lower letters, numbers, and commas (no spaces)
+    pattern = r"^(.*?)\s+([A-Za-z0-9,]+)\s*\|\s*([A-Z]{2,3})$"
     match = re.match(pattern, player_str.strip())
     if match:
         name, pos_str, team = match.groups()
