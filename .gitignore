@@ -430,3 +430,6 @@ FodyWeavers.xsd
 
 # Data files
 *.csv
+
+#VS Code project config
+.vscode/
