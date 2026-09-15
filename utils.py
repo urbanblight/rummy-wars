@@ -1,4 +1,5 @@
 import csv
+import datetime
 import re
 
 import requests
@@ -7,6 +8,36 @@ import logger
 import models
 
 LOGGER = logger.setup_logger("utils")
+
+def is_milb(mlbam_id: int) -> bool:
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_id}?hydrate=currentTeam"
+    res = requests.get(url)
+    res.raise_for_status()
+
+    current_team = res.json().get("people", [])[0].get("currentTeam", [])
+    parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team.get("id")
+
+    return int(current_team.get("id")) != int(parent_org_id)
+
+def get_mlb_latest_callup(mlbam_id: str) -> str:
+    url = f"https://statsapi.mlb.com/api/v1/transactions?playerId={mlbam_id}&startDate=2026-01-01"
+    res = requests.get(url)
+    res.raise_for_status()
+
+    txns = res.json().get("transactions", [])
+
+    # Filter for call-ups / recalls (typeCode 'CU' or 'R')
+    call_ups = [
+        t for t in txns
+        if t.get("typeCode") in ["CU", "R", "SE"] or "recalled" in t.get("description", "").lower()
+    ]
+    if not call_ups:
+        return None
+
+    # Take the most recent transaction
+    latest_call_up = call_ups[-1] if call_ups else None
+    
+    return latest_call_up.get("effectiveDate") if latest_call_up else '0000-00-00'
 
 def get_mlb_career_totals(mlbam_id: int) -> dict:
     """Fetches career total AB and IP for a player via MLB StatsAPI.
@@ -64,7 +95,7 @@ def get_mlbam_id_by_name(cbs_name: str) -> int | None:
             return int(person["id"])
 
     # Fallback to the youngest match returned by MLB search engine
-    return int(max(people, key=lambda person: person.birthDate)["id"])
+    return int(max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min))["id"])  # noqa: DTZ901
 
 def parse_cbs_player_string(player_str: str):
     """
@@ -168,14 +199,14 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
 def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_il: int = 8) -> list[str]:
     violations = []
     
-    # Rule 1: Minors limits
+    # Minors limits
     minors_count = roster.count_by_status("Minors")
     if minors_count > max_minors:
         violations.append(f"Exceeded Minors Slot Limit: {minors_count}/{max_minors}")
     else:
         LOGGER.info(f"Does not exceed MiLB roster limit: {minors_count}")
         
-    # Rule 2: Injured Reserve limits
+    # Injured Reserve limits
     il_count = roster.count_by_status("Injured")
     if il_count > max_il:
         violations.append(f"Exceeded Injured Reserve Limit: {il_count}/{max_il}")
@@ -184,36 +215,37 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
 
     # BEGIN CHECKING DATA OUTSIDE CSV
 
-    # Rule 4: Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
+    # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
 
     for player in roster.get_by_status("Minors"):
         try:
             mlbam_id = get_mlbam_id_by_name(player.name)
-            if not mlbam_id:
-                pass
-            else:
+            if mlbam_id:
                 stats = get_mlb_career_totals(mlbam_id) if mlbam_id else None
-            if not stats:
-                pass
-            else:
-                if player.player_type == 'Batter':
-                    try:
-                        if stats['ab'] > 130:
-                            LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}).")
+                if stats:
+                    if is_milb(mlbam_id):
+                        LOGGER.debug(f"{player.name} is currently on an MiLB team.")
+                    else:
+                        if player.player_type == 'Batter':
+                            try:
+                                if stats['ab'] > 130:
+                                    call_up_date = get_mlb_latest_callup(mlbam_id)
+                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}")
+                                else:
+                                    LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
+                            except Exception as e:  # noqa: BLE001
+                                raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
+                        elif player.player_type == 'Pitcher':
+                            try:
+                                if stats['ip'] > 50:
+                                    call_up_date = get_mlb_latest_callup(mlbam_id)
+                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}")
+                                else:
+                                    LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
+                            except Exception as e: # noqa: BLE001
+                                    raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
                         else:
-                            LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
-                    except Exception as e:  # noqa: BLE001
-                        raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
-                elif player.player_type == 'Pitcher':
-                    try:
-                        if stats['ip'] > 50:
-                            LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}).")
-                        else:
-                            LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
-                    except Exception as e: # noqa: BLE001
-                            raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
-                else:
-                    LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
+                            LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
 
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
