@@ -41,7 +41,6 @@ def is_il(mlbam_player: dict) -> bool:
         LOGGER.info(f"{mlb_player_name} is a free agent or otherwise inactive.")
         return False
     else:
-        LOGGER.debug(f"Getting roster status for {mlb_player_name}")
         roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster?rosterType=40Man"
         roster_res = requests.get(roster_url)
         roster_res.raise_for_status()
@@ -294,9 +293,9 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
     for player in roster.get_by_status("Injured"):
         mlbam_player = get_mlbam_player_by_name(player.name)
         if is_il(mlbam_player):
-            LOGGER.info(f"{player.name} is injured and on the IL")
+            LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
-            LOGGER.warning(f"{player.name} is in an injured slot but not on the IL")
+            LOGGER.warning(f"{player.name} is placed in an Injured slot but is not on the IL")
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -332,7 +331,7 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
                     else:
                         LOGGER.debug(f"{player.name} found MLB API but no stats found")
             else:
-                LOGGER.debug(f"No player found in MLB API for {player.name}")
+                pass # LOGGER.debug(f"No player found in MLB API for {player.name}")
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
          
