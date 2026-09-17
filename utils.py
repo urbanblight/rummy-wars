@@ -62,7 +62,6 @@ def is_il(mlbam_player: dict) -> bool:
             else:
                 # Parse and sort transactions chronologically (newest first)
                 txns = person.get("transactions", [])
-                LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
                 sorted_txns = sorted(
                     txns,
                     key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),
@@ -108,7 +107,6 @@ def get_mlb_latest_activation(mlbam_player: dict) -> str:
 
     # Parse and sort transactions chronologically (newest first)
     txns = res.json().get("people", [])[0].get("transactions", [])
-    LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
     sorted_txns = sorted(
         txns,
         key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),

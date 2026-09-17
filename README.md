@@ -29,8 +29,6 @@ Console only outputs `INFO` but the `rummy-wars.log` file contains `DEBUG` level
 2026-09-16 18:01:15 | DEBUG    | utils | Tyler Soderstrom is placed in an Injured slot and is on the IL
 2026-09-16 18:01:16 | DEBUG    | utils | Shohei Ohtani is placed in an Injured slot and is on the IL
 2026-09-16 18:01:16 | DEBUG    | utils | Shane Bieber is placed in an Injured slot and is on the IL
-2026-09-16 18:01:17 | DEBUG    | utils | Number of transactions for Sam Bachman: 42
-2026-09-16 18:01:17 | DEBUG    | utils | Number of transactions for Sam Bachman: 42
 2026-09-16 18:01:17 | WARNING  | utils | Sam Bachman is placed in an Injured slot and was activated 2026-09-16
 2026-09-16 18:01:18 | DEBUG    | utils | Carlos Estevez is placed in an Injured slot and is on the IL
 2026-09-16 18:01:19 | DEBUG    | utils | Cody Ponce is placed in an Injured slot and is on the IL
