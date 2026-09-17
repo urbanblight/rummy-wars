@@ -9,16 +9,121 @@ import models
 
 LOGGER = logger.setup_logger("utils")
 
-def is_milb(mlbam_id: int) -> bool:
-    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_id}?hydrate=currentTeam"
+def is_milb(mlbam_player: dict) -> bool:
+    mlbam_player_name = mlbam_player.get("fullName")
+    mlbam_player_id = mlbam_player.get("id")
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=currentTeam"
     res = requests.get(url)
     res.raise_for_status()
 
-    current_team = res.json().get("people", [])[0].get("currentTeam", [])
-    parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team.get("id")
+    current_team =res.json().get("people", [])[0].get("currentTeam", [])
+    try:
+        current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
+        parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
+        return int(current_team_id) != int(parent_org_id)
+    except Exception as e:
+        LOGGER.error(f"Determining whether the current team for {mlbam_player.name} is the parent organization: {e}")
+        return False
 
-    return int(current_team.get("id")) != int(parent_org_id)
+def is_il(mlbam_player: dict) -> bool:
+    mlbam_player_id = mlbam_player.get("id")
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=transactions,currentTeam"
+    res = requests.get(url)
+    res.raise_for_status()
 
+    person = res.json().get("people", [])[0]
+    person_id = person.get("id")
+    current_team = person.get("currentTeam", {})
+    team_id = current_team.get("id")
+    mlb_player_name = mlbam_player.get("fullName", "Unknown Player")
+    
+    if not team_id:
+        LOGGER.info(f"{mlb_player_name} is a free agent or otherwise inactive.")
+        return False
+    else:
+        roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster?rosterType=40Man"
+        roster_res = requests.get(roster_url)
+        roster_res.raise_for_status()
+        
+        roster_entries = roster_res.json().get("roster", [])
+        
+        # Find the player in the roster array
+        player_roster_entry = next(
+            (item for item in roster_entries if item.get("person", {}).get("id") == person_id), 
+            None
+        )
+        if player_roster_entry:
+            # The roster entry contains the status object (e.g., code "D10", description "Injured 10-Day")
+            status_info = player_roster_entry.get("status", {})
+            status_desc = status_info.get("description", "Active")
+            status_code = status_info.get("code", "")
+            if status_code.startswith("D") or "Injured" in status_desc:
+                return True
+            else:
+                # Parse and sort transactions chronologically (newest first)
+                txns = person.get("transactions", [])
+                LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
+                sorted_txns = sorted(
+                    txns,
+                    key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),
+                    reverse=True
+                )
+                last_il_placement = None
+                last_il_activation = None
+                latest_rehab_assignment = None
+
+                for txn in sorted_txns:
+                    desc = txn.get("description", "").lower()
+                    # Capture the most recent IL Placement
+                    if not last_il_placement and ("placed" in desc and "injured list" in desc):
+                        last_il_placement = txn
+
+                    # Capture the most recent IL Activation
+                    if not last_il_activation and ("activated" in desc and "injured list" in desc):
+                        last_il_activation = txn
+
+                    # Capture any recent Rehab Assignment
+                    if not latest_rehab_assignment and ("rehab assignment" in desc):
+                        latest_rehab_assignment = txn
+
+                    # Once we have both placement and activation, we can stop scanning
+                    if last_il_placement and last_il_activation:
+                        break
+
+                # Determine current IL status
+                placement_date = last_il_placement.get("date") if last_il_placement else "1900-01-01"
+                activation_date = last_il_activation.get("date") if last_il_activation else "1900-01-01"
+
+                # Player is currently on IL if their most recent IL placement is newer than their last activation
+                return placement_date > activation_date
+        else:
+            return False
+def get_mlb_latest_activation(mlbam_player: dict) -> str:
+    mlbam_player_id = mlbam_player.get("id")
+    mlb_player_name = mlbam_player.get("fullName", "Unknown Player")
+
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=transactions,currentTeam"
+    res = requests.get(url)
+    res.raise_for_status()
+
+    # Parse and sort transactions chronologically (newest first)
+    txns = res.json().get("people", [])[0].get("transactions", [])
+    LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
+    sorted_txns = sorted(
+        txns,
+        key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),
+        reverse=True
+    )
+    last_il_activation = None
+
+    for txn in sorted_txns:
+        desc = txn.get("description", "").lower()
+        # Capture the most recent IL Activation
+        if not last_il_activation and ("activated" in desc and "injured list" in desc):
+            last_il_activation = txn
+
+    return last_il_activation.get("date")
+    
 def get_mlb_latest_callup(mlbam_id: str) -> str:
     url = f"https://statsapi.mlb.com/api/v1/transactions?playerId={mlbam_id}&startDate=2026-01-01"
     res = requests.get(url)
@@ -39,13 +144,14 @@ def get_mlb_latest_callup(mlbam_id: str) -> str:
     
     return latest_call_up.get("effectiveDate") if latest_call_up else '0000-00-00'
 
-def get_mlb_career_totals(mlbam_id: int) -> dict:
+def get_mlb_career_totals(player: dict) -> dict:
     """Fetches career total AB and IP for a player via MLB StatsAPI.
 
     :param mlbam_id: Player's official MLBAM ID
 
     """
-    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_id}?hydrate=stats(group=[hitting,pitching],type=[career])"
+    mlbam_player_id = player.get("id")
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=stats(group=[hitting,pitching],type=[career])"
     res = requests.get(url)
     res.raise_for_status()
 
@@ -69,11 +175,11 @@ def get_mlb_career_totals(mlbam_id: int) -> dict:
 
     return result
 
-def get_mlbam_id_by_name(cbs_name: str) -> int | None:
+def get_mlbam_player_by_name(cbs_name: str) -> dict | None:
     """Searches MLB StatsAPI for a player name and returns their mlbam_id.
 
     :param cbs_name: Raw player name string from CBS (e.g., "Shohei Ohtani")
-    :return: MLBAM ID as an integer, or None if not found
+    :return: MLBAM Player object,
     """
     clean_name = cbs_name.strip()
     params = {"names": clean_name}
@@ -88,14 +194,7 @@ def get_mlbam_id_by_name(cbs_name: str) -> int | None:
     if not people:
         LOGGER.debug(f"Unable to match CBS name '{cbs_name}' to MLB player")
         return None
-    # Exact case-insensitive match check
-    for person in people:
-        full_name = person.get("fullName", "")
-        if full_name.lower() == clean_name.lower():
-            return int(person["id"])
-
-    # Fallback to the youngest match returned by MLB search engine
-    return int(max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min))["id"])  # noqa: DTZ901
+    return max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min)) # noqa: DTZ901
 
 def parse_cbs_player_string(player_str: str):
     """
@@ -215,21 +314,30 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
 
     # BEGIN CHECKING DATA OUTSIDE CSV
 
-    # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
+    # Check if player with injured status is on the IL
+    for player in roster.get_by_status("Injured"):
+        mlbam_player = get_mlbam_player_by_name(player.name)
+        if is_il(mlbam_player):
+            LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
+        else:
+            latest_activation_date = get_mlb_latest_activation(mlbam_player)
+            LOGGER.warning(f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}")
 
+    # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
         try:
-            mlbam_id = get_mlbam_id_by_name(player.name)
-            if mlbam_id:
-                stats = get_mlb_career_totals(mlbam_id) if mlbam_id else None
-                if stats:
-                    if is_milb(mlbam_id):
-                        LOGGER.debug(f"{player.name} is currently on an MiLB team.")
-                    else:
+            mlbam_player = get_mlbam_player_by_name(player.name)
+            if mlbam_player:
+                mlbam_player_id = mlbam_player.get("id")
+                if is_milb(mlbam_player):
+                    LOGGER.debug(f"{player.name} is currently on an MiLB team.")
+                else: 
+                    stats = get_mlb_career_totals(mlbam_player) if mlbam_player_id else None
+                    if stats:
                         if player.player_type == 'Batter':
                             try:
                                 if stats['ab'] > 130:
-                                    call_up_date = get_mlb_latest_callup(mlbam_id)
+                                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
                                     LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}")
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
@@ -238,7 +346,7 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
                         elif player.player_type == 'Pitcher':
                             try:
                                 if stats['ip'] > 50:
-                                    call_up_date = get_mlb_latest_callup(mlbam_id)
+                                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
                                     LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}")
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
@@ -246,7 +354,10 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
                                     raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
                         else:
                             LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
-
+                    else:
+                        LOGGER.debug(f"{player.name} found MLB API but no stats found")
+            else:
+                pass # LOGGER.debug(f"No player found in MLB API for {player.name}")
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
          
