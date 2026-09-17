@@ -3,10 +3,12 @@
 A tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
 
 ## Installation
- `git clone https://github.com/urbanblight/rummy-wars/`
- 
- `python3 -m pip install -r requirements.txt`
-
+ ```
+ git clone https://github.com/urbanblight/rummy-wars/
+ python3 -m venv .venv/
+ source .venv/bin/activate
+ python3 -m pip install -r requirements.txt`
+```
 ## Usage
 
 * Log into Rummy Wars on the CBS Fantasy Baseball platform.
