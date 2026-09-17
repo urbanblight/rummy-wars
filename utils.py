@@ -98,7 +98,32 @@ def is_il(mlbam_player: dict) -> bool:
                 return placement_date > activation_date
         else:
             return False
+def get_mlb_latest_activation(mlbam_player: dict) -> str:
+    mlbam_player_id = mlbam_player.get("id")
+    mlb_player_name = mlbam_player.get("fullName", "Unknown Player")
 
+    url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=transactions,currentTeam"
+    res = requests.get(url)
+    res.raise_for_status()
+
+    # Parse and sort transactions chronologically (newest first)
+    txns = res.json().get("people", [])[0].get("transactions", [])
+    LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
+    sorted_txns = sorted(
+        txns,
+        key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),
+        reverse=True
+    )
+    last_il_activation = None
+
+    for txn in sorted_txns:
+        desc = txn.get("description", "").lower()
+        # Capture the most recent IL Activation
+        if not last_il_activation and ("activated" in desc and "injured list" in desc):
+            last_il_activation = txn
+
+    return last_il_activation.get("date")
+    
 def get_mlb_latest_callup(mlbam_id: str) -> str:
     url = f"https://statsapi.mlb.com/api/v1/transactions?playerId={mlbam_id}&startDate=2026-01-01"
     res = requests.get(url)
@@ -295,7 +320,8 @@ def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_i
         if is_il(mlbam_player):
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
-            LOGGER.warning(f"{player.name} is placed in an Injured slot but is not on the IL")
+            latest_activation_date = get_mlb_latest_activation(mlbam_player)
+            LOGGER.warning(f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}")
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
