@@ -1,3 +1,12 @@
+"""Utility functions for validating MLB and CBS fantasy roster data.
+
+This module contains the logic for translating CBS roster exports into internal
+player objects, checking MLB API metadata, and evaluating a roster against the
+league's rules for minors and injured-list slots.
+"""
+
+from __future__ import annotations
+
 import csv
 import datetime
 import re
@@ -9,7 +18,20 @@ import models
 
 LOGGER = logger.setup_logger("utils")
 
+
 def is_milb(mlbam_player: dict) -> bool:
+    """Return whether a player is currently assigned to a minor league team.
+
+    The MLB StatsAPI response is inspected for the player's current team and the
+    parent organization. If the current team differs from the parent org, the
+    player is considered to be in the minor leagues.
+
+    Args:
+        mlbam_player: Dictionary-like player payload from the MLB StatsAPI.
+
+    Returns:
+        True if the player is on a minor-league team; otherwise False.
+    """
     mlbam_player_name = mlbam_player.get("fullName")
     mlbam_player_id = mlbam_player.get("id")
     url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=currentTeam"
@@ -26,6 +48,18 @@ def is_milb(mlbam_player: dict) -> bool:
         return False
 
 def is_il(mlbam_player: dict) -> bool:
+    """Determine whether the player is currently on the injured list.
+
+    The function checks the player's current roster status and, if needed,
+    reviews transaction history to determine whether the most recent IL placement
+    is newer than the most recent activation.
+
+    Args:
+        mlbam_player: Dictionary-like MLB player payload from the StatsAPI.
+
+    Returns:
+        True if the player is currently on the injured list; otherwise False.
+    """
     mlbam_player_id = mlbam_player.get("id")
     url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=transactions,currentTeam"
     res = requests.get(url)
@@ -98,6 +132,15 @@ def is_il(mlbam_player: dict) -> bool:
         else:
             return False
 def get_mlb_latest_activation(mlbam_player: dict) -> str:
+    """Return the most recent date on which the player was activated from the IL.
+
+    Args:
+        mlbam_player: Dictionary-like MLB player payload containing transaction
+            history.
+
+    Returns:
+        A date string in YYYY-MM-DD format, or None if no activation is found.
+    """
     mlbam_player_id = mlbam_player.get("id")
     mlb_player_name = mlbam_player.get("fullName", "Unknown Player")
 
@@ -123,6 +166,15 @@ def get_mlb_latest_activation(mlbam_player: dict) -> str:
     return last_il_activation.get("date")
     
 def get_mlb_latest_callup(mlbam_id: str) -> str:
+    """Return the most recent MLB promotion or recall date for a player.
+
+    Args:
+        mlbam_id: MLBAM player identifier used to fetch transaction history.
+
+    Returns:
+        The effective date of the most recent call-up or recall, or None if no
+        qualifying transaction is found.
+    """
     url = f"https://statsapi.mlb.com/api/v1/transactions?playerId={mlbam_id}&startDate=2026-01-01"
     res = requests.get(url)
     res.raise_for_status()
@@ -143,10 +195,18 @@ def get_mlb_latest_callup(mlbam_id: str) -> str:
     return latest_call_up.get("effectiveDate") if latest_call_up else '0000-00-00'
 
 def get_mlb_career_totals(player: dict) -> dict:
-    """Fetches career total AB and IP for a player via MLB StatsAPI.
+    """Fetch career hitting and pitching totals for a player.
 
-    :param mlbam_id: Player's official MLBAM ID
+    The MLB StatsAPI returns season and career stat groupings. This helper reads
+    the career stat split for the player and normalizes the relevant values into a
+    small dictionary for rule checking.
 
+    Args:
+        player: Dictionary containing MLB player metadata and ID.
+
+    Returns:
+        A dictionary with at-bats under the "ab" key and innings pitched under
+        the "ip" key.
     """
     mlbam_player_id = player.get("id")
     url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=stats(group=[hitting,pitching],type=[career])"
@@ -174,10 +234,17 @@ def get_mlb_career_totals(player: dict) -> dict:
     return result
 
 def get_mlbam_player_by_name(cbs_name: str) -> dict | None:
-    """Searches MLB StatsAPI for a player name and returns their mlbam_id.
+    """Look up an MLB player record using the CBS roster player's name.
 
-    :param cbs_name: Raw player name string from CBS (e.g., "Shohei Ohtani")
-    :return: MLBAM Player object,
+    A direct name match is not always exact, so the function queries the MLB
+    StatsAPI's people search endpoint and selects the most likely result.
+
+    Args:
+        cbs_name: Raw player name string from CBS, such as "Shohei Ohtani".
+
+    Returns:
+        The matching MLB player dictionary, or None if no plausible result is
+        returned.
     """
     clean_name = cbs_name.strip()
     params = {"names": clean_name}
@@ -195,9 +262,21 @@ def get_mlbam_player_by_name(cbs_name: str) -> dict | None:
     return max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min)) # noqa: DTZ901
 
 def parse_cbs_player_string(player_str: str):
-    """
-    Parses 'Name Pos1,Pos2 | TEAM' into (name, [positions], team).
-    Example: 'Caleb Durbin 2B,3B | BOS' -> ('Caleb Durbin', ['2B', '3B'], 'BOS')
+    """Parse a CBS player string into name, positions, and team.
+
+    CBS roster lines often follow the pattern:
+        "Name Pos1,Pos2 | TEAM"
+
+    Example:
+        "Caleb Durbin 2B,3B | BOS" -> ("Caleb Durbin", ["2B", "3B"], "BOS")
+
+    Args:
+        player_str: Raw CBS roster text representing one player.
+
+    Returns:
+        A tuple containing the player name, a list of positions, and a team code.
+        If parsing fails, the original text is returned with an empty position
+        list and the team set to "UNKNOWN".
     """
     # Restrict position characters to upper/lower letters, numbers, and commas (no spaces)
     pattern = r"^(.*?)\s+([A-Za-z0-9,]+)\s*\|\s*([A-Z]{2,3})$"
@@ -209,7 +288,18 @@ def parse_cbs_player_string(player_str: str):
     return player_str.strip(), [], "UNKNOWN"
 
 def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
-    """Parses a CBS Sports Fantasy Baseball roster export CSV into a TeamRoster object."""
+    """Parse a CBS fantasy baseball CSV export into a TeamRoster model.
+
+    The CSV format includes section headers such as "Pitchers" and "Batters" as
+    well as player rows that describe status, roster slot, team, and stats. This
+    function normalizes that structure into the application's internal dataclasses.
+
+    Args:
+        file_path: File system path to the imported CBS CSV export.
+
+    Returns:
+        A TeamRoster object containing the parsed Player entries.
+    """
     roster = models.TeamRoster()
     current_type = "Batter"
     current_status = "Active"
@@ -293,7 +383,26 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
                 
     return roster
 
-def validate_league_rules(roster: models.TeamRoster, max_minors: int = 20, max_il: int = 8) -> list[str]:
+def validate_league_rules(
+    roster: models.TeamRoster,
+    max_minors: int = 20,
+    max_il: int = 8,
+) -> list[str]:
+    """Check a roster against the league's roster rules.
+
+    The function inspects status counts first, then cross-references injured and
+    minor-league players with MLB stats and transaction data to flag players who
+    are slotted incorrectly according to league rules.
+
+    Args:
+        roster: Team roster to validate.
+        max_minors: Maximum number of players allowed in the Minors slot.
+        max_il: Maximum number of players allowed in the Injured list slot.
+
+    Returns:
+        A list of human-readable violation messages. An empty list indicates the
+        roster appears compliant under the configured thresholds.
+    """
     violations = []
     
     # Minors limits

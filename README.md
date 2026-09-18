@@ -5,10 +5,22 @@ A tool to check compliance with roster requirements for the Rummy Wars fantasy b
 ## Installation
  ```
  git clone https://github.com/urbanblight/rummy-wars/
+ cd rummy-wars
  python3 -m venv .venv/
  source .venv/bin/activate
- python3 -m pip install -r requirements.txt`
+ python3 -m pip install -r requirements.txt
+ python3 -m pip install sphinx
 ```
+
+## Generate API Documentation
+
+```bash
+cd docs
+make html
+```
+
+The generated HTML files will be available in `docs/_build/html/`.
+
 ## Usage
 
 * Log into Rummy Wars on the CBS Fantasy Baseball platform.
