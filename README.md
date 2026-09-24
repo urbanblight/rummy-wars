@@ -44,15 +44,23 @@ Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS 
 
 ### Tests
 
-Run the unit and integration suites separately by directory, or run both together:
+Install the development and test dependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m playwright install chromium
+```
+
+Run the unit, HTTP integration, and browser suites separately by directory, or run all of them together:
 
 ```bash
 pytest tests/unit
 pytest tests/integration
+pytest tests/browser
 pytest tests
 ```
 
-The integration tests use the checked-in roster export and mock external MLB validation calls, so the suite does not require network access.
+The tests use the checked-in roster export and mock external MLB validation calls, so they do not require network access. Browser tests require the Chromium browser installed by Playwright.
 <p align="center">
   <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
 </p>
