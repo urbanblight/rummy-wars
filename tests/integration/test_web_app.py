@@ -22,7 +22,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         """Create one test client and locate the shared CSV fixture."""
         cls.client = app.test_client()
         cls.sample_csv = (
-            Path(__file__).parents[2] / "roster-overview-26-20260914.csv"
+            Path(__file__).parents[2] / "tests/fixtures/cbs-roster-export.csv"
         )
 
     def test_home_page_contains_upload_and_loading_state(self):

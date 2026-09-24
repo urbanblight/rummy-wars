@@ -15,7 +15,7 @@ from werkzeug.serving import make_server
 import app as app_module
 
 PROJECT_ROOT = Path(__file__).parents[2]
-SAMPLE_CSV = PROJECT_ROOT / "roster-overview-26-20260914.csv"
+SAMPLE_CSV = PROJECT_ROOT / "tests/fixtures/cbs-roster-export.csv"
 
 
 @pytest.fixture
