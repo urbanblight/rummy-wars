@@ -10,7 +10,6 @@ import models
 LOGGER = logger.setup_logger("utils")
 
 def is_milb(mlbam_player: dict) -> bool:
-    mlbam_player_name = mlbam_player.get("fullName")
     mlbam_player_id = mlbam_player.get("id")
     url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=currentTeam"
     res = requests.get(url)
@@ -21,7 +20,7 @@ def is_milb(mlbam_player: dict) -> bool:
         current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
         parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
         return int(current_team_id) != int(parent_org_id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         LOGGER.error(f"Determining whether the current team for {mlbam_player.name} is the parent organization: {e}")
         return False
 
@@ -65,7 +64,9 @@ def is_il(mlbam_player: dict) -> bool:
                 LOGGER.debug(f"Number of transactions for {mlb_player_name}: {len(txns)}")
                 sorted_txns = sorted(
                     txns,
-                    key=lambda x: datetime.datetime.strptime(x.get("date", "1900-01-01"), "%Y-%m-%d"),
+                    key=lambda x: datetime.datetime.strptime(
+                        x.get("date", "1900-01-01"), "%Y-%m-%d"
+                    ).replace(tzinfo=datetime.UTC),
                     reverse=True
                 )
                 last_il_placement = None

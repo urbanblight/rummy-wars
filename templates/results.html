@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roster results | Rummy Wars</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow">RUMMY WARS / RESULTS</p>
+        <h1>Roster report</h1>
+        <p class="muted">{{ filename }}</p>
+      </div>
+      <a class="text-link" href="{{ url_for('index') }}">Check another file <span aria-hidden="true">-></span></a>
+    </header>
+
+    <section class="stat-grid" aria-label="Roster summary">
+      <article class="stat"><span>Total players</span><strong>{{ roster.players|length }}</strong></article>
+      <article class="stat"><span>Active</span><strong>{{ roster.count_by_status('Active') }}</strong></article>
+      <article class="stat"><span>Minors</span><strong class="{{ 'bad-number' if roster.count_by_status('Minors') > 20 else '' }}">{{ roster.count_by_status('Minors') }}<small> / 20</small></strong></article>
+      <article class="stat"><span>Injured reserve</span><strong class="{{ 'bad-number' if roster.count_by_status('Injured') > 8 else '' }}">{{ roster.count_by_status('Injured') }}<small> / 8</small></strong></article>
+    </section>
+
+    <section class="status-banner {{ 'has-violations' if violations else 'compliant' }}">
+      <span class="status-mark" aria-hidden="true">{{ '!' if violations else 'OK' }}</span>
+      <div>
+        <strong>{{ violations|length }} rule violation{{ '' if violations|length == 1 else 's' }} found</strong>
+        <p>{{ 'Review the items below before setting your lineup.' if violations else 'No evaluated roster limits were exceeded.' }}</p>
+      </div>
+    </section>
+
+    {% if violations %}
+      <section class="violations" aria-labelledby="violations-title">
+        <div class="section-heading"><p class="panel-kicker">ATTENTION</p><h2 id="violations-title">Rule violations</h2></div>
+        {% for violation in violations %}<p class="violation">{{ violation }}</p>{% endfor %}
+      </section>
+    {% endif %}
+
+    <section class="roster-section" aria-labelledby="roster-title">
+      <div class="section-heading"><p class="panel-kicker">FULL ROSTER</p><h2 id="roster-title">Players</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Player</th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
+          <tbody>
+            {% for player in roster.players %}
+              <tr>
+                <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
+                <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
+                <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
+                <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value if value is not none else '-' }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

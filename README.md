@@ -11,7 +11,24 @@ A tool to check compliance with roster requirements for the Rummy Wars fantasy b
 
 * Log into Rummy Wars on the CBS Fantasy Baseball platform.
 * Go to the Roster page for a team and download the CSV export for that team
-* Execute `python3 -m main path/to/export.csv` 
+* Execute `python3 -m main --csv path/to/export.csv`
+
+### Local web UI
+
+Install the dependencies and start the local web server:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 app.py
+```
+
+The server listens on port `5000` by default. Set `PORT` to use another port:
+
+```bash
+PORT=5050 python3 app.py
+```
+
+Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
 <p align="center">
   <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
 </p>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rummy Wars | Roster Check</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="intro">
+      <p class="eyebrow">Something pithy.</p>
+      <h1>RUMMY WARS</h1>
+      <p class="lede">Upload a CBS Fantasy Baseball roster export to check league limits and review every player in one place.</p>
+    </section>
+
+    <section class="upload-panel" aria-labelledby="upload-title">
+      <div>
+        <p class="panel-kicker">LOCAL EVALUATOR</p>
+        <h2 id="upload-title">Upload a roster CSV</h2>
+        <p class="muted">Your file is evaluated locally and is not saved by this app.</p>
+      </div>
+      <form action="{{ url_for('evaluate') }}" method="post" enctype="multipart/form-data">
+        <label class="file-drop" for="roster">
+          <span class="file-icon" aria-hidden="true">+</span>
+          <span><strong>Choose CSV export</strong><small id="file-name">CBS roster CSV, up to 5 MB</small></span>
+        </label>
+        <input id="roster" name="roster" type="file" accept=".csv,text/csv" required>
+        <button type="submit">Evaluate roster <span aria-hidden="true">-></span></button>
+      </form>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="alert {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+  </main>
+  <script>
+    document.querySelector('#roster').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      document.querySelector('#file-name').textContent = file ? file.name : 'CBS roster CSV, up to 5 MB';
+    });
+  </script>
+</body>
+</html>
