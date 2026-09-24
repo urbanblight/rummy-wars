@@ -1,6 +1,6 @@
 # rummy-wars
 
-A tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
+UI and CLI tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
 
 ## Installation
  ```
@@ -28,10 +28,9 @@ The generated HTML files will be available in `docs/_build/html/`.
 
 ### Local web UI
 
-Install the dependencies and start the local web server:
+Follow the installation instructions above, and then, from within the activated virtual environment:
 
 ```bash
-python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
@@ -42,6 +41,26 @@ PORT=5050 python3 app.py
 ```
 
 Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
+
+### Tests
+
+Install the development and test dependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m playwright install chromium
+```
+
+Run the unit, HTTP integration, and browser suites separately by directory, or run all of them together:
+
+```bash
+pytest tests/unit
+pytest tests/integration
+pytest tests/browser
+pytest tests
+```
+
+The tests use the checked-in roster export and mock external MLB validation calls, so they do not require network access. Browser tests require the Chromium browser installed by Playwright.
 <p align="center">
   <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
 </p>
