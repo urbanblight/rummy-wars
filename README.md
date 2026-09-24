@@ -28,10 +28,9 @@ The generated HTML files will be available in `docs/_build/html/`.
 
 ### Local web UI
 
-Install the dependencies and start the local web server:
+Follow the installation instructions above, and then, from within the activated virtual environment:
 
 ```bash
-python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
