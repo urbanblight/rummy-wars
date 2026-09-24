@@ -42,6 +42,18 @@ PORT=5050 python3 app.py
 ```
 
 Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
+
+### Tests
+
+Run the unit and integration suites separately by directory, or run both together:
+
+```bash
+pytest tests/unit
+pytest tests/integration
+pytest tests
+```
+
+The integration tests use the checked-in roster export and mock external MLB validation calls, so the suite does not require network access.
 <p align="center">
   <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
 </p>
