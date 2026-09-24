@@ -1,3 +1,9 @@
+"""Logging configuration for the Rummy Wars application.
+
+The project uses a single module-level logger setup so that other modules can
+retrieve a consistent logger while avoiding duplicate handlers.
+"""
+
 import logging
 import sys
 from pathlib import Path
@@ -5,13 +11,24 @@ from pathlib import Path
 # Default logger name
 LOGGER_NAME = "rummy-wars"
 LOGGER_FILE_PATH = Path(__file__).resolve()
-PROJECT_ROOT = LOGGER_FILE_PATH.parents[1] 
+PROJECT_ROOT = LOGGER_FILE_PATH.parents[1]
 LOG_DIR = PROJECT_ROOT / "logs"
 
+
 def setup_logger(
-    name: str = LOGGER_NAME
+    name: str = LOGGER_NAME,
 ) -> logging.Logger:
-    """Configures a logger that outputs to console"""
+    """Create and configure a logger for console and file output.
+
+    This helper ensures the logger is initialized once per unique name and
+    attaches both a console handler and a file handler.
+
+    Args:
+        name: Logger name used when retrieving the logger instance.
+
+    Returns:
+        A configured logging.Logger instance ready for use in the application.
+    """
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)  # Capture everything from DEBUG up
 

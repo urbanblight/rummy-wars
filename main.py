@@ -1,3 +1,9 @@
+"""Command-line entry point for validating a CBS fantasy roster.
+
+This module orchestrates parsing a roster CSV and checking it against the rules
+for minors and injured-list limits defined by the Rummy Wars league.
+"""
+
 import argparse
 
 import logger
@@ -6,7 +12,16 @@ import utils
 
 LOGGER = logger.setup_logger("main")
 
+
 def main(args_list=None):
+    """Run the roster validation workflow from the command line.
+
+    Args:
+        args_list: Sequence of CLI arguments for testing or embedding.
+
+    Returns:
+        None. The program logs violations and exits through the CLI flow.
+    """
     args = parse_arguments(args_list)
     roster = utils.parse_cbs_roster_csv(args.csv)
     LOGGER.info(f"Successfully loaded {len(roster.players)} players.")
@@ -20,8 +35,13 @@ def main(args_list=None):
         LOGGER.info("Roster may be compliant with evaluated rules, but check any warnings above.")
 
 def parse_arguments(args_list=None):
-    """
-    Parse command-line arguments.
+    """Parse and validate command-line arguments for the roster checker.
+
+    Args:
+        args_list: Argument list to parse instead of sys.argv.
+
+    Returns:
+        argparse.Namespace: Parsed CLI values including the required CSV path.
     """
     # Creating the parser object.
     parser = argparse.ArgumentParser(
