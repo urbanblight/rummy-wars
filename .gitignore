@@ -432,8 +432,5 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Data files
-*.csv
-
 #VS Code project config
 .vscode/
