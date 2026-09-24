@@ -1,6 +1,6 @@
 # rummy-wars
 
-A tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
+UI and CLI tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
 
 ## Installation
  ```
