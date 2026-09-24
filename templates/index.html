@@ -9,16 +9,16 @@
 <body>
   <main class="shell">
     <section class="intro">
-      <p class="eyebrow">Something pithy.</p>
+      <p class="eyebrow">"Baseball is ninety percent mental. The other half is physical." -- Yogi Berra</p>
       <h1>RUMMY WARS</h1>
-      <p class="lede">Upload a CBS Fantasy Baseball roster export to check league limits and review every player in one place.</p>
+      <p class="lede">Your home for everything rummy.</p>
     </section>
 
     <section class="upload-panel" aria-labelledby="upload-title">
       <div>
-        <p class="panel-kicker">LOCAL EVALUATOR</p>
+        <p class="panel-kicker">ROSTER EVALUATOR</p>
         <h2 id="upload-title">Upload a roster CSV</h2>
-        <p class="muted">Your file is evaluated locally and is not saved by this app.</p>
+        <p class="muted">Upload a CBS Fantasy Baseball roster export to check league limits and review every player in one place. Your file is evaluated locally and is not saved by this app.</p>
       </div>
       <form action="{{ url_for('evaluate') }}" method="post" enctype="multipart/form-data">
         <label class="file-drop" for="roster">
@@ -26,7 +26,7 @@
           <span><strong>Choose CSV export</strong><small id="file-name">CBS roster CSV, up to 5 MB</small></span>
         </label>
         <input id="roster" name="roster" type="file" accept=".csv,text/csv" required>
-        <button type="submit">Evaluate roster <span aria-hidden="true">-></span></button>
+        <button type="submit">Evaluate roster <span aria-hidden="true">→</span></button>
       </form>
     </section>
 
@@ -36,10 +36,36 @@
       {% endfor %}
     {% endwith %}
   </main>
+
+  <div class="loading-screen" id="loading-screen" hidden aria-live="polite" aria-busy="true">
+    <div class="loading-card" role="status">
+      <div class="baseball-loader" aria-hidden="true">
+        <div class="diamond">
+          <span class="base second"></span>
+          <span class="base third"></span>
+          <span class="base home"></span>
+        </div>
+        <span class="ball"></span>
+      </div>
+      <p class="panel-kicker">ROSTER EVALUATION IN PROGRESS</p>
+      <h2>Taking the field</h2>
+      <p class="loading-copy">Checking roster limits and player eligibility<span class="loading-dots" aria-hidden="true">...</span></p>
+    </div>
+  </div>
+
   <script>
-    document.querySelector('#roster').addEventListener('change', (event) => {
+    const rosterInput = document.querySelector('#roster');
+    const rosterForm = document.querySelector('form');
+    const loadingScreen = document.querySelector('#loading-screen');
+
+    rosterInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       document.querySelector('#file-name').textContent = file ? file.name : 'CBS roster CSV, up to 5 MB';
+    });
+
+    rosterForm.addEventListener('submit', () => {
+      loadingScreen.hidden = false;
+      rosterForm.querySelector('button').disabled = true;
     });
   </script>
 </body>
