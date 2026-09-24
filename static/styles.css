@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Roboto+Slab:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   /* Fenway Greens Palette */
@@ -10,8 +10,8 @@
   --ink: #f7f9f8;               /* Scoreboard off-white for body text */
   --muted: #c3d4cd;             /* Muted text for subheadings */
   
-  --primary: #0c2340;           /* Deep Navy */
-  --primary-glow: #15355e;
+  --primary: #936138;           /* Infied Dirt */
+  --primary-glow: #7a4f2c;
   --accent: #fdb827;            /* Foul Pole Gold */
   --accent-hover: #e0a11d;
   
@@ -30,7 +30,7 @@ body {
   color: var(--ink);
   /* Muted radial glare mimicking stadium lighting */
   background: radial-gradient(circle at 85% 10%, #688e80 0, transparent 35%), var(--paper);
-  font-family: 'Roboto Slab', Georgia, serif;
+  font-family: 'DM Sans', Arial, sans-serif;
 }
 
 .shell {
@@ -78,6 +78,65 @@ h2 {
   color: var(--muted);
   font-size: 18px;
   line-height: 1.55;
+}
+
+.constitution-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: min(700px, 100%);
+  margin-bottom: 28px;
+  padding: 18px 22px;
+  color: var(--ink);
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  box-shadow: 6px 6px 0 var(--panel-dark);
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.constitution-link small,
+.constitution-link strong {
+  display: block;
+}
+
+.constitution-link small {
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.constitution-link strong {
+  font-family: 'DM Sans', Arial, sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.constitution-link > span:last-child {
+  color: var(--accent);
+  font-size: 24px;
+}
+
+.constitution-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.reference-links {
+  width: min(700px, 100%);
+  margin-bottom: 28px;
+}
+
+.reference-links .constitution-link {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.reference-links .constitution-link:last-child {
+  margin-bottom: 0;
 }
 
 .upload-panel {
