@@ -3,3 +3,7 @@
 name = "Rummy Wars"
 version = "0.1.0"
 requires-python = ">=3.7"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
