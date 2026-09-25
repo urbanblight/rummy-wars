@@ -6,9 +6,10 @@ UI and CLI tool to check compliance with roster requirements for the Rummy Wars 
  ```
  git clone https://github.com/urbanblight/rummy-wars/
  cd rummy-wars
- python3 -m venv .venv/
+ python venv .venv/
  source .venv/bin/activate
- python3 -m pip install -r requirements.txt
+ pip install -r requirements.txt
+ pip install -r requirements-dev.txt
 ```
 
 ## Generate API Documentation
@@ -25,8 +26,8 @@ The generated HTML files will be available in `docs/_build/html/`.
 Install the development and test dependencies:
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
-python3 -m playwright install chromium
+pip install -r requirements-dev.txt
+python playwright install chromium
 ```
 
 Run the unit, HTTP integration, and browser suites separately by directory, or run all of them together:
@@ -47,20 +48,20 @@ The tests use the checked-in roster export and mock external MLB validation call
 
 ### CLI
 
-* Execute `python3 -m main --csv path/to/export.csv`
+* Execute `python main --csv path/to/export.csv`
 
 ### Local web UI
 
 Follow the installation instructions above, and then, from within the activated virtual environment:
 
 ```bash
-python3 app.py
+python app.py
 ```
 
 The server listens on port `8080` by default. Set `PORT` to use another port for local development.
 
 ```bash
-PORT=5050 python3 app.py
+PORT=5050 python app.py
 ```
 
 Then open <http://127.0.0.1:8080> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
