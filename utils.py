@@ -389,7 +389,7 @@ def validate_league_rules(
     max_reserves: int =7,
     max_minors: int = 20,
     max_il: int = 8,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Check a roster against the league's roster rules.
 
     The function inspects status counts first, then cross-references reserve, injured, and
@@ -403,11 +403,11 @@ def validate_league_rules(
         max_il: Maximum number of players allowed in the Injured list slot.
 
     Returns:
-        A list of human-readable violation messages. An empty list indicates the
-        roster appears compliant under the configured thresholds.
+        A tuple containing human-readable violation and warning messages.
     """
-    violations = []
 
+    violations = []
+    warnings = []
     # Bench limits
     bench_count = roster.count_by_status("Reserves")
     if bench_count > max_reserves:
@@ -438,7 +438,9 @@ def validate_league_rules(
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            LOGGER.warning(f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}")
+            il_warning = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            LOGGER.warning(il_warning)
+            warnings.append(il_warning)
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -455,7 +457,9 @@ def validate_league_rules(
                             try:
                                 if stats['ab'] > 130:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}")
+                                    milb_warning = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
+                                    LOGGER.warning(milb_warning)
+                                    warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
                             except Exception as e:  # noqa: BLE001
@@ -464,13 +468,17 @@ def validate_league_rules(
                             try:
                                 if stats['ip'] > 50:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}")
+                                    milb_warning = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
+                                    LOGGER.warning(milb_warning)
+                                    warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
                             except Exception as e: # noqa: BLE001
                                     raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
                         else:
-                            LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
+                            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
+                            LOGGER.warning(unexpected_position_warning)
+                            warnings.append(unexpected_position_warning)
                     else:
                         LOGGER.debug(f"{player.name} found MLB API but no stats found")
             else:
@@ -478,4 +486,4 @@ def validate_league_rules(
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
          
-    return violations
+    return violations, warnings

@@ -110,9 +110,12 @@ class LeagueRuleUnitTests(unittest.TestCase):
             models.Player("Minor Two", "MIN", ["1B"], "BOS", "Minors", "Batter"),
         ])
 
-        violations = utils.validate_league_rules(roster, max_minors=1, max_il=8)
+        violations, warnings = utils.validate_league_rules(
+            roster, max_minors=1, max_il=8
+        )
 
         self.assertEqual(violations, ["Exceeded Minors Slot Limit: 2/1"])
+        self.assertEqual(warnings, [])
         self.assertEqual(
             _get_player.call_args_list,
             [call("Minor One"), call("Minor Two")],

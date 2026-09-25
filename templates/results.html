@@ -34,11 +34,20 @@
       </div>
     </section>
 
-    {% if violations %}
-      <section class="violations" aria-labelledby="violations-title">
-        <div class="section-heading"><p class="panel-kicker">NOTIFICATIONS</p><h2 id="violations-title">Rule violations</h2></div>
-        {% for violation in violations %}<p class="violation">{{ violation }}</p>{% endfor %}
-      </section>
+    {% if violations or warnings %}
+      <div class="section-heading"><p class="panel-kicker">NOTIFICATIONS</p></div>
+      {% if violations %}
+        <h2 id="violations-title">Rule violations</h2>
+        <section class="violations" aria-labelledby="violations-title">
+          {% for violation in violations %}<p class="violation">{{ violation }}</p>{% endfor %}
+        </section>
+      {% endif %}
+      {% if warnings %}
+        <h2 id="warnings-title">Warnings</h2>
+        <section class="warnings" aria-labelledby="warnings-title">
+          {% for warning in warnings %}<p class="warning">{{ warning }}</p>{% endfor %}
+        </section>
+      {% endif %}
     {% endif %}
 
     <section class="roster-section" aria-labelledby="roster-title">

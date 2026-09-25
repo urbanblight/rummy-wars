@@ -22,8 +22,8 @@ def evaluate_upload(file_storage):
         temporary_file.write(csv_bytes)
         temporary_file.flush()
         roster = utils.parse_cbs_roster_csv(temporary_file.name)
-        violations = utils.validate_league_rules(roster, max_minors=20, max_il=8)
-    return roster, violations
+        violations, warnings = utils.validate_league_rules(roster, max_minors=20, max_il=8)
+    return roster, violations, warnings
 
 
 @app.get("/")
@@ -43,7 +43,7 @@ def evaluate():
         return redirect(url_for("index"))
 
     try:
-        roster, violations = evaluate_upload(upload)
+        roster, violations, warnings = evaluate_upload(upload)
     except (UnicodeDecodeError, OSError, ValueError) as error:
         LOGGER.warning("Unable to process roster upload: %s", error)
         flash("That file could not be read as a CBS roster CSV.", "error")
@@ -58,6 +58,7 @@ def evaluate():
         filename=upload.filename,
         roster=roster,
         violations=violations,
+        warnings=warnings
     )
 
 
