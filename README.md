@@ -20,29 +20,7 @@ make html
 
 The generated HTML files will be available in `docs/_build/html/`.
 
-## Usage
-
-* Log into Rummy Wars on the CBS Fantasy Baseball platform.
-* Go to the Roster page for a team and download the CSV export for that team
-* Execute `python3 -m main --csv path/to/export.csv`
-
-### Local web UI
-
-Follow the installation instructions above, and then, from within the activated virtual environment:
-
-```bash
-python3 app.py
-```
-
-The server listens on port `5000` by default. Set `PORT` to use another port:
-
-```bash
-PORT=5050 python3 app.py
-```
-
-Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
-
-### Tests
+## Tests
 
 Install the development and test dependencies:
 
@@ -61,6 +39,33 @@ pytest tests
 ```
 
 The tests use the checked-in roster export and mock external MLB validation calls, so they do not require network access. Browser tests require the Chromium browser installed by Playwright.
+
+## Usage
+
+* Log into Rummy Wars on the CBS Fantasy Baseball platform.
+* Go to the Roster page for a team and download the CSV export for that team
+
+### CLI
+
+* Execute `python3 -m main --csv path/to/export.csv`
+
+### Local web UI
+
+Follow the installation instructions above, and then, from within the activated virtual environment:
+
+```bash
+python3 app.py
+```
+
+The server listens on port `5000` by default. Set `PORT` to use another port:
+
+```bash
+PORT=5050 python3 app.py
+```
+
+Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
+
+
 <p align="center">
   <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
 </p>

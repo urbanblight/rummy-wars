@@ -34,7 +34,7 @@ def live_server(monkeypatch):
     monkeypatch.setattr(
         app_module.utils,
         "validate_league_rules",
-        lambda roster, max_minors=20, max_il=8: [],
+        lambda roster, max_minors=20, max_il=8: ([], []),
     )
 
     server = make_server("127.0.0.1", 0, app_module.app)
