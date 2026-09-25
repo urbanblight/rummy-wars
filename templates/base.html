@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RUMMY WARS{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% block body %}{% endblock %}
+
+  <footer class="site-footer">
+    <p>&copy; {{ current_year }} Rummy Wars. Released under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
+    <p>
+      Found a bug? <a href="https://github.com/urbanblight/rummy-wars/issues" target="_blank" rel="noopener noreferrer">Report it on GitHub</a>
+      &middot;
+      Want to help? <a href="https://github.com/urbanblight/rummy-wars/wiki/How-to-Develop-and-Deploy-FantasyRummyWars.com" target="_blank" rel="noopener noreferrer">Contribute to development</a>
+    </p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

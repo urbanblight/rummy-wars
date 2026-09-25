@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import tempfile
@@ -13,6 +14,11 @@ app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 app.secret_key = "rummy-wars-local"
 
 LOGGER = logging.getLogger(__name__)
+
+
+@app.context_processor
+def inject_current_year():
+    return {"current_year": datetime.datetime.now(tz=datetime.timezone.utc).date().year}
 
 
 def evaluate_upload(file_storage):

@@ -1,13 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RUMMY WARS Roster Check Results</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>">
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}RUMMY WARS Roster Check Results{% endblock %}
+
+{% block body %}
   <main class="shell results-shell">
     <header class="results-header">
       <div>
@@ -69,5 +64,4 @@
       </div>
     </section>
   </main>
-</body>
-</html>
+{% endblock %}
