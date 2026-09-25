@@ -37,13 +37,17 @@ def is_milb(mlbam_player: dict) -> bool:
     res = requests.get(url)
     res.raise_for_status()
 
-    current_team =res.json().get("people", [])[0].get("currentTeam", [])
+    current_team = res.json().get("people", [])[0].get("currentTeam", {})
     try:
         current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
         parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
         return int(current_team_id) != int(parent_org_id)
     except Exception as e:  # noqa: BLE001
-        LOGGER.error(f"Determining whether the current team for {mlbam_player.name} is the parent organization: {e}")
+        player_name = mlbam_player.get("fullName", "Unknown Player")
+        LOGGER.error(
+            f"Determining whether the current team for {player_name} "
+            f"is the parent organization: {e}"
+        )
         return False
 
 def is_il(mlbam_player: dict) -> bool:
