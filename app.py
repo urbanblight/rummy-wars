@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 @app.context_processor
 def inject_current_year():
-    return {"current_year": datetime.datetime.now(tz=datetime.timezone.utc).date()}
+    return {"current_year": datetime.datetime.now(tz=datetime.timezone.utc).date().year}
 
 
 def evaluate_upload(file_storage):
