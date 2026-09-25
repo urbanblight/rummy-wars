@@ -45,6 +45,12 @@ def roster_player(name, status, player_type="Batter"):
 class MlbMetadataHelperTests(unittest.TestCase):
     """Verify helper functions that translate MLB StatsAPI responses."""
 
+    def test_fake_response_raises_for_http_error(self):
+        response = FakeResponse({}, status_code=500)
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
+            response.raise_for_status()
+
     @patch("utils.requests.get")
     def test_is_milb_detects_parent_org_difference(self, get):
         get.return_value = FakeResponse({
@@ -350,4 +356,4 @@ class ValidatorBranchTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main()  # pragma: no cover
