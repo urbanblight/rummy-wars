@@ -35,7 +35,7 @@ def main(args_list=None):
         LOGGER.warning("Warnings Detected:")
         for w in warnings:
             LOGGER.warning(f"- {w}")
-    else:
+    if not violations and not warnings:
         LOGGER.info("Roster may be compliant with evaluated rules, but check any warnings above.")
 
 def parse_arguments(args_list=None):
