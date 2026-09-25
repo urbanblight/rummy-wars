@@ -443,7 +443,6 @@ def validate_league_rules(
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
             il_warning = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
-            LOGGER.warning(il_warning)
             warnings.append(il_warning)
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
@@ -462,7 +461,6 @@ def validate_league_rules(
                                 if stats['ab'] > 130:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
                                     milb_warning = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
-                                    LOGGER.warning(milb_warning)
                                     warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
@@ -473,7 +471,6 @@ def validate_league_rules(
                                 if stats['ip'] > 50:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
                                     milb_warning = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
-                                    LOGGER.warning(milb_warning)
                                     warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
@@ -481,7 +478,6 @@ def validate_league_rules(
                                     raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
                         else:
                             unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
-                            LOGGER.warning(unexpected_position_warning)
                             warnings.append(unexpected_position_warning)
                     else:
                         LOGGER.debug(f"{player.name} found MLB API but no stats found")

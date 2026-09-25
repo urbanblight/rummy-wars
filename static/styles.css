@@ -49,12 +49,21 @@ body {
   margin-bottom: 55px;
 }
 
-.eyebrow,
-.panel-kicker {
+.eyebrow {
   margin: 0 0 18px;
   color: var(--accent);
   font-family: 'DM Mono', monospace;
   font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.panel-kicker {
+  margin: 0 0 36px;
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 24px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 1.5px;
