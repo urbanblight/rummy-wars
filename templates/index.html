@@ -1,13 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RUMMY WARS</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>">
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}RUMMY WARS{% endblock %}
+
+{% block body %}
   <main class="shell">
     <section class="intro">
       <p class="eyebrow">"Baseball is ninety percent mental. The other half is physical." -- Yogi Berra</p>
@@ -82,7 +77,9 @@
       <p class="loading-copy">Comparing the uploaded roster against the MLB Stats API and generating notifications<span class="loading-dots" aria-hidden="true">...</span></p>
     </div>
   </div>
+{% endblock %}
 
+{% block scripts %}
   <script>
     const rosterInput = document.querySelector('#roster');
     const rosterForm = document.querySelector('form');
@@ -98,5 +95,4 @@
       rosterForm.querySelector('button').disabled = true;
     });
   </script>
-</body>
-</html>
+{% endblock %}
