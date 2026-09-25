@@ -11,7 +11,6 @@ import csv
 import datetime
 import os
 import re
-from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -20,6 +19,9 @@ import logger
 import models
 
 load_dotenv()
+MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
+MAX_MINORS = int(os.getenv("MAX_MINORS")) if os.getenv("MAX_MINORS") else None
+MAX_RESERVES = int(os.getenv("MAX_RESERVES")) if os.getenv("MAX_RESERVES") else None
 
 LOGGER = logger.setup_logger("utils")
 
@@ -395,9 +397,9 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
 
 def validate_league_rules(
     roster: models.TeamRoster,
-    max_minors: Optional[int] = None,
-    max_il: Optional[int] = None,
-    max_reserves: Optional[int] = None,
+    max_minors: int | None = MAX_MINORS,
+    max_il: int | None = MAX_IL,
+    max_reserves: int | None = MAX_RESERVES,
 ) -> tuple[list[str], list[str]]:
     """Check a roster against the league's roster rules.
 
