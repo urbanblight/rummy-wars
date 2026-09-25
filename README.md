@@ -57,13 +57,13 @@ Follow the installation instructions above, and then, from within the activated 
 python3 app.py
 ```
 
-The server listens on port `5000` by default. Set `PORT` to use another port:
+The server listens on port `8080` by default. Set `PORT` to use another port for local development.
 
 ```bash
 PORT=5050 python3 app.py
 ```
 
-Then open <http://127.0.0.1:5000> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
+Then open <http://127.0.0.1:8080> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
 
 
 <p align="center">
