@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RUMMY WARS Roster Check Results</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>">
 </head>
 <body>
   <main class="shell results-shell">
@@ -20,21 +21,22 @@
     <section class="stat-grid" aria-label="Roster summary">
       <article class="stat"><span>Total players</span><strong>{{ roster.players|length }}</strong></article>
       <article class="stat"><span>Active</span><strong>{{ roster.count_by_status('Active') }}</strong></article>
+      <article class="stat"><span>Reserves</span><strong class="{{ 'bad-number' if roster.count_by_status('Reserves') > 7 else '' }}">{{ roster.count_by_status('Reserves') }}</strong> / 7</article>
       <article class="stat"><span>Minors</span><strong class="{{ 'bad-number' if roster.count_by_status('Minors') > 20 else '' }}">{{ roster.count_by_status('Minors') }}<small> / 20</small></strong></article>
-      <article class="stat"><span>Injured reserve</span><strong class="{{ 'bad-number' if roster.count_by_status('Injured') > 8 else '' }}">{{ roster.count_by_status('Injured') }}<small> / 8</small></strong></article>
+      <article class="stat"><span>IL</span><strong class="{{ 'bad-number' if roster.count_by_status('Injured') > 8 else '' }}">{{ roster.count_by_status('Injured') }}<small> / 8</small></strong></article>
     </section>
 
     <section class="status-banner {{ 'has-violations' if violations else 'compliant' }}">
       <span class="status-mark" aria-hidden="true">{{ '!' if violations else 'OK' }}</span>
       <div>
         <strong>{{ violations|length }} rule violation{{ '' if violations|length == 1 else 's' }} found</strong>
-        <p>{{ 'Review the items below before setting your lineup.' if violations else 'No evaluated roster limits were exceeded.' }}</p>
+        <p>{{ 'Review the items below before finalizing your lineup.' if violations else 'No evaluated roster limits were exceeded.' }}</p>
       </div>
     </section>
 
     {% if violations %}
       <section class="violations" aria-labelledby="violations-title">
-        <div class="section-heading"><p class="panel-kicker">ATTENTION</p><h2 id="violations-title">Rule violations</h2></div>
+        <div class="section-heading"><p class="panel-kicker">NOTIFICATIONS</p><h2 id="violations-title">Rule violations</h2></div>
         {% for violation in violations %}<p class="violation">{{ violation }}</p>{% endfor %}
       </section>
     {% endif %}

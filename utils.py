@@ -386,17 +386,19 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
 
 def validate_league_rules(
     roster: models.TeamRoster,
+    max_reserves: int =7,
     max_minors: int = 20,
     max_il: int = 8,
 ) -> list[str]:
     """Check a roster against the league's roster rules.
 
-    The function inspects status counts first, then cross-references injured and
+    The function inspects status counts first, then cross-references reserve, injured, and
     minor-league players with MLB stats and transaction data to flag players who
     are slotted incorrectly according to league rules.
 
     Args:
         roster: Team roster to validate.
+        max_reserves: Maximum number of players allowed in the Reserve slot.
         max_minors: Maximum number of players allowed in the Minors slot.
         max_il: Maximum number of players allowed in the Injured list slot.
 
@@ -405,6 +407,13 @@ def validate_league_rules(
         roster appears compliant under the configured thresholds.
     """
     violations = []
+
+    # Bench limits
+    bench_count = roster.count_by_status("Reserves")
+    if bench_count > max_reserves:
+        violations.append(f"Exceeded Reserve Slot Limit: {bench_count}/{max_reserves}")
+    else:
+            LOGGER.info(f"Does not exceed reserve roster limit: {bench_count}")
     
     # Minors limits
     minors_count = roster.count_by_status("Minors")
