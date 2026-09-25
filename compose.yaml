@@ -3,7 +3,7 @@ services:
     image: rummywars
     build:
       context: .
-      dockerfile: ./dockerfile
-    ports:
-      - 5000:5000
+      dockerfile: ./dockerfile
+
+      - 8080:8080
       - 8000:8000
