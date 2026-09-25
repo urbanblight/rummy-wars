@@ -390,9 +390,9 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
 
 def validate_league_rules(
     roster: models.TeamRoster,
-    max_reserves: int =7,
     max_minors: int = 20,
     max_il: int = 8,
+    max_reserves: int = 7,
 ) -> tuple[list[str], list[str]]:
     """Check a roster against the league's roster rules.
 
