@@ -9,12 +9,17 @@ from __future__ import annotations
 
 import csv
 import datetime
+import os
 import re
+from typing import Optional
 
 import requests
+from dotenv import load_dotenv
 
 import logger
 import models
+
+load_dotenv()
 
 LOGGER = logger.setup_logger("utils")
 
@@ -390,9 +395,9 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
 
 def validate_league_rules(
     roster: models.TeamRoster,
-    max_minors: int = 20,
-    max_il: int = 8,
-    max_reserves: int = 7,
+    max_minors: Optional[int] = None,
+    max_il: Optional[int] = None,
+    max_reserves: Optional[int] = None,
 ) -> tuple[list[str], list[str]]:
     """Check a roster against the league's roster rules.
 
@@ -402,13 +407,19 @@ def validate_league_rules(
 
     Args:
         roster: Team roster to validate.
-        max_reserves: Maximum number of players allowed in the Reserve slot.
-        max_minors: Maximum number of players allowed in the Minors slot.
-        max_il: Maximum number of players allowed in the Injured list slot.
+        max_minors: Maximum Minors players; defaults to MAX_MINORS or 20.
+        max_il: Maximum Injured-list players; defaults to MAX_IL or 8.
+        max_reserves: Maximum Reserve players; defaults to MAX_RESERVES or 7.
 
     Returns:
         A tuple containing human-readable violation and warning messages.
     """
+
+    max_minors = max_minors if max_minors is not None else int(os.getenv("MAX_MINORS", "20"))
+    max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
+    max_reserves = max_reserves if max_reserves is not None else int(
+        os.getenv("MAX_RESERVES", "7")
+    )
 
     violations = []
     warnings = []
