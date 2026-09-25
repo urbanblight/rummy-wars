@@ -102,6 +102,41 @@ class RosterParsingTests(unittest.TestCase):
 class LeagueRuleUnitTests(unittest.TestCase):
     """Verify rule-limit reporting without making external MLB requests."""
 
+    @patch.dict(
+        "utils.os.environ",
+        {"MAX_MINORS": "1", "MAX_IL": "1", "MAX_RESERVES": "1"},
+    )
+    @patch("utils.is_milb", return_value=True)
+    @patch("utils.is_il", return_value=True)
+    @patch("utils.get_mlbam_player_by_name", return_value={"id": 1})
+    def test_uses_environment_rule_limits(self, *_mocks):
+        """Unset rule limits should use configured environment values.
+
+        The MAX_* module constants are resolved once at import time (from
+        `.env`), so patching os.environ can't retroactively change already
+        -bound function defaults. Passing None explicitly forces the
+        function to re-read the (patched) environment variables.
+        """
+        roster = models.TeamRoster([
+            models.Player("Reserve One", "C", ["C"], "BOS", "Reserves", "Batter"),
+            models.Player("Reserve Two", "C", ["C"], "BOS", "Reserves", "Batter"),
+            models.Player("Minor One", "C", ["C"], "BOS", "Minors", "Batter"),
+            models.Player("Minor Two", "C", ["C"], "BOS", "Minors", "Batter"),
+            models.Player("Injured One", "C", ["C"], "BOS", "Injured", "Batter"),
+            models.Player("Injured Two", "C", ["C"], "BOS", "Injured", "Batter"),
+        ])
+
+        violations, warnings = utils.validate_league_rules(
+            roster, max_minors=None, max_il=None, max_reserves=None
+        )
+
+        self.assertEqual(violations, [
+            "Exceeded Reserve Slot Limit: 2/1",
+            "Exceeded Minors Slot Limit: 2/1",
+            "Exceeded Injured Reserve Limit: 2/1",
+        ])
+        self.assertEqual(warnings, [])
+
     @patch("utils.get_mlbam_player_by_name", return_value=None)
     def test_reports_minors_limit_without_calling_mlb(self, _get_player):
         """A Minors overage should be reported while lookups stay mocked."""

@@ -7,6 +7,7 @@ does not require network access.
 """
 
 import io
+import runpy
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -52,6 +53,43 @@ class WebAppIntegrationTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Roster exports must be CSV files.", response.data)
+
+    @patch("app.utils.parse_cbs_roster_csv", side_effect=ValueError("invalid CSV"))
+    def test_unreadable_csv_redirects_with_error(self, _parse_roster):
+        """Expected parser errors should be shown as upload feedback."""
+        response = self.client.post(
+            "/evaluate",
+            data={"roster": (io.BytesIO(b"bad CSV"), "roster.csv")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"That file could not be read as a CBS roster CSV.", response.data)
+
+    @patch("app.utils.validate_league_rules", side_effect=RuntimeError("validation failed"))
+    def test_unexpected_evaluation_error_redirects_with_error(self, _validate_rules):
+        """Unexpected evaluation errors should return generic user feedback."""
+        with self.sample_csv.open("rb") as csv_file:
+            response = self.client.post(
+                "/evaluate",
+                data={"roster": (csv_file, self.sample_csv.name)},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"The roster could not be evaluated.", response.data)
+
+    @patch("flask.Flask.run")
+    @patch.dict("os.environ", {"PORT": "9090"})
+    def test_script_entrypoint_uses_configured_port(self, run):
+        """Running app.py as a script should pass its configured port to Flask."""
+        app_path = Path(__file__).parents[2] / "app.py"
+
+        runpy.run_path(str(app_path), run_name="__main__")
+
+        run.assert_called_once_with(host="127.0.0.1", port=9090, debug=True)
 
     @patch("app.utils.validate_league_rules", return_value=([], []))
     def test_csv_upload_renders_evaluation_results(self, _validate_rules):

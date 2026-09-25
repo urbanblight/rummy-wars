@@ -22,7 +22,7 @@ def evaluate_upload(file_storage):
         temporary_file.write(csv_bytes)
         temporary_file.flush()
         roster = utils.parse_cbs_roster_csv(temporary_file.name)
-        violations, warnings = utils.validate_league_rules(roster, max_minors=20, max_il=8)
+        violations, warnings = utils.validate_league_rules(roster)
     return roster, violations, warnings
 
 
@@ -63,5 +63,5 @@ def evaluate():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(os.environ.get("PORT", "8080")) # Default to Docker default
     app.run(host="127.0.0.1", port=port, debug=True)
