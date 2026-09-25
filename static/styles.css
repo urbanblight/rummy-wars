@@ -19,6 +19,11 @@
   --crimson: #8a1c14;
   --crimson-bg: #2b1110;
   --crimson-light: #f8d8d5;
+
+  /* Deep Navy System */
+  --navy: #0c2340;              /* Core Deep Navy primary color */
+  --navy-bg: #121c27;           /* Dark tinted background for navy cards/panels */
+  --navy-light: #d9e1e8;        /* Light tinted background for navy badges */
 }
 
 * {
@@ -44,12 +49,21 @@ body {
   margin-bottom: 55px;
 }
 
-.eyebrow,
-.panel-kicker {
+.eyebrow {
   margin: 0 0 18px;
   color: var(--accent);
   font-family: 'DM Mono', monospace;
   font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.panel-kicker {
+  margin: 0 0 36px;
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 24px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -311,9 +325,17 @@ button:hover {
   box-shadow: 0 0 0 2px var(--panel);
 }
 
+.base.first,
 .base.second {
   top: -7px;
+}
+
+.base.first {
   right: -7px;
+}
+
+.base.second {
+  left: -7px;
 }
 
 .base.third {
@@ -332,32 +354,10 @@ button:hover {
   left: 72px;
   width: 25px;
   height: 25px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 25px;
+  line-height: 1;
   animation: run-bases 4.8s linear infinite;
-}
-
-.ball::before,
-.ball::after {
-  position: absolute;
-  width: 6px;
-  height: 17px;
-  border-right: 2px dashed var(--coral);
-  border-left: 2px dashed var(--coral);
-  content: '';
-}
-
-.ball::before {
-  top: 4px;
-  left: 4px;
-  transform: rotate(35deg);
-}
-
-.ball::after {
-  right: 4px;
-  bottom: 4px;
-  transform: rotate(35deg);
 }
 
 @keyframes run-bases {
@@ -429,7 +429,7 @@ button:hover {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 
@@ -479,6 +479,11 @@ button:hover {
   border-left-color: var(--crimson);
 }
 
+.status-banner.has-warnings {
+  background: var(--navy-bg);
+  border-left-color: var(--navy);
+}
+
 .status-banner p {
   margin: 4px 0 0;
   color: var(--muted);
@@ -503,6 +508,11 @@ button:hover {
   background: var(--crimson);
 }
 
+.has-warnings .status-mark {
+  color: var(--ink);
+  background: var(--navy);
+}
+
 .section-heading {
   margin-bottom: 18px;
 }
@@ -521,6 +531,17 @@ button:hover {
   color: var(--ink);
   background: var(--crimson-bg);
   border-left: 4px solid var(--crimson);
+}
+.warnings {
+  margin-bottom: 48px;
+}
+
+.warning {
+  margin: 8px 0;
+  padding: 13px 16px;
+  color: var(--ink);
+  background: var(--navy-bg);
+  border-left: 4px solid var(--navy);
 }
 
 .table-wrap {

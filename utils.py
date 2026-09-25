@@ -37,13 +37,17 @@ def is_milb(mlbam_player: dict) -> bool:
     res = requests.get(url)
     res.raise_for_status()
 
-    current_team =res.json().get("people", [])[0].get("currentTeam", [])
+    current_team = res.json().get("people", [])[0].get("currentTeam", {})
     try:
         current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
         parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
         return int(current_team_id) != int(parent_org_id)
     except Exception as e:  # noqa: BLE001
-        LOGGER.error(f"Determining whether the current team for {mlbam_player.name} is the parent organization: {e}")
+        player_name = mlbam_player.get("fullName", "Unknown Player")
+        LOGGER.error(
+            f"Determining whether the current team for {player_name} "
+            f"is the parent organization: {e}"
+        )
         return False
 
 def is_il(mlbam_player: dict) -> bool:
@@ -388,23 +392,32 @@ def validate_league_rules(
     roster: models.TeamRoster,
     max_minors: int = 20,
     max_il: int = 8,
-) -> list[str]:
+    max_reserves: int = 7,
+) -> tuple[list[str], list[str]]:
     """Check a roster against the league's roster rules.
 
-    The function inspects status counts first, then cross-references injured and
+    The function inspects status counts first, then cross-references reserve, injured, and
     minor-league players with MLB stats and transaction data to flag players who
     are slotted incorrectly according to league rules.
 
     Args:
         roster: Team roster to validate.
+        max_reserves: Maximum number of players allowed in the Reserve slot.
         max_minors: Maximum number of players allowed in the Minors slot.
         max_il: Maximum number of players allowed in the Injured list slot.
 
     Returns:
-        A list of human-readable violation messages. An empty list indicates the
-        roster appears compliant under the configured thresholds.
+        A tuple containing human-readable violation and warning messages.
     """
+
     violations = []
+    warnings = []
+    # Bench limits
+    bench_count = roster.count_by_status("Reserves")
+    if bench_count > max_reserves:
+        violations.append(f"Exceeded Reserve Slot Limit: {bench_count}/{max_reserves}")
+    else:
+            LOGGER.info(f"Does not exceed reserve roster limit: {bench_count}")
     
     # Minors limits
     minors_count = roster.count_by_status("Minors")
@@ -429,7 +442,8 @@ def validate_league_rules(
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            LOGGER.warning(f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}")
+            il_warning = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            warnings.append(il_warning)
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -446,7 +460,8 @@ def validate_league_rules(
                             try:
                                 if stats['ab'] > 130:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}")
+                                    milb_warning = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
+                                    warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
                             except Exception as e:  # noqa: BLE001
@@ -455,13 +470,15 @@ def validate_league_rules(
                             try:
                                 if stats['ip'] > 50:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    LOGGER.warning(f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}")
+                                    milb_warning = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
+                                    warnings.append(milb_warning)
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
                             except Exception as e: # noqa: BLE001
                                     raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
                         else:
-                            LOGGER.warning(f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}")
+                            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
+                            warnings.append(unexpected_position_warning)
                     else:
                         LOGGER.debug(f"{player.name} found MLB API but no stats found")
             else:
@@ -469,4 +486,4 @@ def validate_league_rules(
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
          
-    return violations
+    return violations, warnings

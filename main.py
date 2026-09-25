@@ -26,13 +26,17 @@ def main(args_list=None):
     roster = utils.parse_cbs_roster_csv(args.csv)
     LOGGER.info(f"Successfully loaded {len(roster.players)} players.")
 
-    violations = utils.validate_league_rules(roster, max_minors=20, max_il=8)
+    violations, warnings = utils.validate_league_rules(roster, max_minors=20, max_il=8)
     if violations:
         LOGGER.warning("Rule Violations Detected:")
         for v in violations:
             LOGGER.warning(f"- {v}")
-    else:
-        LOGGER.info("Roster may be compliant with evaluated rules, but check any warnings above.")
+    if warnings:
+        LOGGER.warning("Warnings Detected:")
+        for w in warnings:
+            LOGGER.warning(f"- {w}")
+if not violations and not warnings:
+        LOGGER.info("Roster may be compliant with evaluated rules.")
 
 def parse_arguments(args_list=None):
     """Parse and validate command-line arguments for the roster checker.

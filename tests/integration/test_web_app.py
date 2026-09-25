@@ -53,7 +53,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Roster exports must be CSV files.", response.data)
 
-    @patch("app.utils.validate_league_rules", return_value=[])
+    @patch("app.utils.validate_league_rules", return_value=([], []))
     def test_csv_upload_renders_evaluation_results(self, _validate_rules):
         """A valid CSV should render parsed players and evaluation results."""
         with self.sample_csv.open("rb") as csv_file:
@@ -66,6 +66,21 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Roster report", response.data)
         self.assertIn(b"Yainer Diaz", response.data)
+        _validate_rules.assert_called_once()
+
+    @patch("app.utils.validate_league_rules", return_value=([], ["Review player eligibility"]))
+    def test_csv_upload_renders_warnings(self, _validate_rules):
+        """Warnings returned by validation should appear on the results page."""
+        with self.sample_csv.open("rb") as csv_file:
+            response = self.client.post(
+                "/evaluate",
+                data={"roster": (csv_file, self.sample_csv.name)},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Warnings", response.data)
+        self.assertIn(b"Review player eligibility", response.data)
         _validate_rules.assert_called_once()
 
 
