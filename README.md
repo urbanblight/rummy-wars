@@ -2,110 +2,12 @@
 
 UI and CLI tool to check compliance with roster requirements for the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform.
 
-## Installation
- ```
- git clone https://github.com/urbanblight/rummy-wars/
- cd rummy-wars
- python venv .venv/
- source .venv/bin/activate
- pip install -r requirements.txt
- pip install -r requirements-dev.txt
-```
-
-## Generate API Documentation
-
-```bash
-cd docs
-make html
-```
-
-The generated HTML files will be available in `docs/_build/html/`.
-
-## Tests
-
-Install the development and test dependencies:
-
-```bash
-pip install -r requirements-dev.txt
-python playwright install chromium
-```
-
-Run the unit, HTTP integration, and browser suites separately by directory, or run all of them together:
-
-```bash
-pytest tests/unit
-pytest tests/integration
-pytest tests/browser
-pytest tests
-```
-
-The tests use the checked-in roster export and mock external MLB validation calls, so they do not require network access. Browser tests require the Chromium browser installed by Playwright.
-
-## Usage
-
-* Log into Rummy Wars on the CBS Fantasy Baseball platform.
-* Go to the Roster page for a team and download the CSV export for that team
-
-### CLI
-
-* Execute `python main --csv path/to/export.csv`
-
-### Local web UI
-
-Follow the installation instructions above, and then, from within the activated virtual environment:
-
-```bash
-python app.py
-```
-
-The server listens on port `8080` by default. Set `PORT` to use another port for local development.
-
-```bash
-PORT=5050 python app.py
-```
-
-Then open <http://127.0.0.1:8080> (or the port you configured) and upload a CBS roster export. Uploaded files are processed in memory and are not persisted.
-
-
 <p align="center">
-  <img src="assets/example_screenshot.png" alt="Example CBS Fantasy Baseball roster page for team Ween, showing export controls." width="300">
+  <img src="https://raw.githubusercontent.com/urbanblight/rummy-wars/main/assets/rw_homepage.png" alt="A screenshot of the FantasyRummyWars.com homepage" width="300">
 </p>
 
-## Sample Output
+To learn about using the version of this app deployed in production at https://fantasyrummywars.com, please visit our UI end-user documentation in the wiki [here](https://github.com/urbanblight/rummy-wars/wiki/Using-FantasyRummyWars.com).
 
-Console only outputs `INFO` but the `rummy-wars.log` file contains `DEBUG` level messages
+To learn about using the CLI tool, launching the UI locally, or developing and deploying FantasyRummyWars.com, please visit our developer documentation in the wiki [here](https://github.com/urbanblight/rummy-wars/wiki/How-to-Develop-and-Deploy-FantasyRummyWars.com).
 
-```
-2026-09-16 18:01:14 | INFO     | main | Successfully loaded 55 players.
-2026-09-16 18:01:14 | INFO     | utils | Does not exceed MiLB roster limit: 20
-2026-09-16 18:01:14 | INFO     | utils | Does not exceed IL roster limit: 8
-2026-09-16 18:01:15 | DEBUG    | utils | Tyler Soderstrom is placed in an Injured slot and is on the IL
-2026-09-16 18:01:16 | DEBUG    | utils | Shohei Ohtani is placed in an Injured slot and is on the IL
-2026-09-16 18:01:16 | DEBUG    | utils | Shane Bieber is placed in an Injured slot and is on the IL
-2026-09-16 18:01:17 | WARNING  | utils | Sam Bachman is placed in an Injured slot and was activated 2026-09-16
-2026-09-16 18:01:18 | DEBUG    | utils | Carlos Estevez is placed in an Injured slot and is on the IL
-2026-09-16 18:01:19 | DEBUG    | utils | Cody Ponce is placed in an Injured slot and is on the IL
-2026-09-16 18:01:20 | DEBUG    | utils | A.J. Puk is placed in an Injured slot and is on the IL
-2026-09-16 18:01:21 | DEBUG    | utils | Kirby Yates is placed in an Injured slot and is on the IL
-2026-09-16 18:01:21 | DEBUG    | utils | Ike Irish is currently on an MiLB team.
-2026-09-16 18:01:22 | DEBUG    | utils | Tre' Morgan is currently on an MiLB team.
-2026-09-16 18:01:22 | DEBUG    | utils | Dauri Fernandez is currently on an MiLB team.
-2026-09-16 18:01:23 | DEBUG    | utils | Mitch Voit is currently on an MiLB team.
-2026-09-16 18:01:23 | DEBUG    | utils | Wehiwa Aloy is currently on an MiLB team.
-2026-09-16 18:01:24 | DEBUG    | utils | Coy James is currently on an MiLB team.
-2026-09-16 18:01:25 | WARNING  | utils | Anthony Volpe is in a Minors slot but has more than 130 AB (1911). Most recent call up was 2026-09-10
-2026-09-16 18:01:26 | DEBUG    | utils | Jaden Fauske is currently on an MiLB team.
-2026-09-16 18:01:26 | DEBUG    | utils | Nick Morabito All-Time MLB AB: 29
-2026-09-16 18:01:27 | DEBUG    | utils | Paulino Santana is currently on an MiLB team.
-2026-09-16 18:01:28 | DEBUG    | utils | Junior Perez is currently on an MiLB team.
-2026-09-16 18:01:28 | DEBUG    | utils | Kevin Alvarez is currently on an MiLB team.
-2026-09-16 18:01:28 | DEBUG    | utils | Josue Briceno is currently on an MiLB team.
-2026-09-16 18:01:29 | DEBUG    | utils | Andrew Salas is currently on an MiLB team.
-2026-09-16 18:01:30 | DEBUG    | utils | Unable to match CBS name 'Dorian Soto' to MLB player
-2026-09-16 18:01:30 | DEBUG    | utils | Colby Thomas is currently on an MiLB team.
-2026-09-16 18:01:31 | WARNING  | utils | Ryan Waldschmidt is in a Minors slot but has more than 130 AB (248). Most recent call up was 2026-07-10
-2026-09-16 18:01:32 | DEBUG    | utils | Jett Williams is currently on an MiLB team.
-2026-09-16 18:01:32 | DEBUG    | utils | Jake Bloss is currently on an MiLB team.
-2026-09-16 18:01:33 | DEBUG    | utils | Kai-Wei Teng is currently on an MiLB team.
-2026-09-16 18:01:33 | INFO     | main | Roster may be compliant with evaluated rules, but check any warnings above.
-```
+To access the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball platform, click [here](https://rummywars.baseball.cbssports.com/).
