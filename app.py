@@ -11,6 +11,20 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 import utils
 
 app = Flask(__name__)
+
+
+@app.template_filter("stat_value")
+def format_stat_value(value: float | None, key: str) -> str:
+    """Format a Player stat for display, e.g. BA as ".275" and ERA/WHIP to 2 decimals."""
+    if value is None:
+        return "-"
+    if key == "BA":
+        return f"{value:.3f}".removeprefix("0")
+    if key in ("ERA", "WHIP"):
+        return f"{value:.2f}"
+    return str(value)
+
+
 load_dotenv(dotenv_path='.env', override=False)
 load_dotenv(dotenv_path='.env.secrets', override=False)
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024

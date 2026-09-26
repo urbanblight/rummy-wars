@@ -86,4 +86,10 @@ def test_submit_renders_results(live_server, page: Page):
     page.get_by_role("button", name="Evaluate roster").click()
 
     expect(page.get_by_role("heading", name="Roster report")).to_be_visible()
+    expect(page.get_by_role("heading", name="Full roster", level=2)).to_be_visible()
+    expect(page.get_by_role("heading", name="Batters", level=3)).to_be_visible()
+    expect(page.get_by_role("heading", name="Pitchers", level=3)).to_be_visible()
+    expect(page.locator(".roster-section")).to_have_attribute(
+        "aria-labelledby", "roster-title"
+    )
     expect(page.get_by_text("Yainer Diaz")).to_be_visible()

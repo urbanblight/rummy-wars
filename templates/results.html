@@ -2,6 +2,24 @@
 
 {% block title %}RUMMY WARS Roster Check Results{% endblock %}
 
+{% macro player_table(players) %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Player</th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
+      <tbody>
+        {% for player in players %}
+          <tr>
+            <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
+            <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
+            <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
+            <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
 {% block body %}
   <main class="shell results-shell">
     <header class="results-header">
@@ -46,22 +64,24 @@
     {% endif %}
 
     <section class="roster-section" aria-labelledby="roster-title">
-      <div class="section-heading"><p class="panel-kicker">FULL ROSTER</p><h2 id="roster-title">Players</h2></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Player</th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
-          <tbody>
-            {% for player in roster.players %}
-              <tr>
-                <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
-                <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
-                <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
-                <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value if value is not none else '-' }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <h2 id="roster-title">Full roster</h2>
+      {% set batters = roster.players|selectattr('player_type', 'equalto', 'Batter')|list %}
+      {% set pitchers = roster.players|selectattr('player_type', 'equalto', 'Pitcher')|list %}
+      {% set other_players = roster.players|rejectattr('player_type', 'equalto', 'Batter')|rejectattr('player_type', 'equalto', 'Pitcher')|list %}
+      <section aria-labelledby="batters-title">
+        <h3 id="batters-title">Batters ({{ batters|length }})</h3>
+        {{ player_table(batters) }}
+      </section>
+      <section aria-labelledby="pitchers-title">
+        <h3 id="pitchers-title">Pitchers ({{ pitchers|length }})</h3>
+        {{ player_table(pitchers) }}
+      </section>
+      {% if other_players %}
+        <section aria-labelledby="other-players-title">
+          <h3 id="other-players-title">Other player types ({{ other_players|length }})</h3>
+          {{ player_table(other_players) }}
+        </section>
+      {% endif %}
     </section>
   </main>
 {% endblock %}
