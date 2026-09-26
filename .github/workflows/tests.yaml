@@ -24,6 +24,7 @@ jobs:
       - name: Run pytest with coverage
         run: |
           pytest tests --cov=. --cov-report=xml
+          coverage report --include=tests/browser/test_ui.py --fail-under=100
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
