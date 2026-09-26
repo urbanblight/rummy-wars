@@ -21,8 +21,8 @@ import models
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
 MAX_MINORS = int(os.getenv("MAX_MINORS")) if os.getenv("MAX_MINORS") else None
-MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB")) if os.getenv("MAX_MINORS_AB") else 0
-MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP")) if os.getenv("MAX_MINORS_IP") else 0 
+MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB", "130"))
+MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP", "50"))
 MAX_RESERVES = int(os.getenv("MAX_RESERVES")) if os.getenv("MAX_RESERVES") else None
 MODE = os.getenv("MODE") if os.getenv("MODE") else "inseason"
 
@@ -473,7 +473,7 @@ def validate_league_rules(
     """
 
     max_minors = max_minors if max_minors is not None else int(
-        os.getenv("MAX_MINORS", "0")
+        os.getenv("MAX_MINORS", "20")
     )
     max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
     max_reserves = max_reserves if max_reserves is not None else int(
