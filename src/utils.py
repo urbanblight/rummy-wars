@@ -279,7 +279,7 @@ def get_mlbam_player_by_name(cbs_name: str) -> dict | None:
     if not people:
         LOGGER.debug(f"Unable to match CBS name '{cbs_name}' to MLB player")
         return None
-    return max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min)) # noqa: DTZ901
+    return max(people, key=lambda person: person.get("birthDate", "0000-00-00"))
 
 def parse_cbs_player_string(player_str: str):
     """Parse a CBS player string into name, positions, and team.
