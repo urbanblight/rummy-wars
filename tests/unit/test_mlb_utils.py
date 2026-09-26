@@ -246,7 +246,7 @@ class ValidatorBranchTests(unittest.TestCase):
             ]),
             patch("utils.get_mlb_latest_callup", return_value="2026-06-01"),
         ):
-            violations, warnings = self.validate(players)
+            violations, warnings = self.validate(players, max_minors=2)
 
         self.assertEqual(violations, [])
         self.assertEqual(warnings, [])
