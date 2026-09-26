@@ -115,8 +115,21 @@ class WebAppIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Roster report", response.data)
-        self.assertIn(b"Yainer Diaz", response.data)
+        response_text = response.get_data(as_text=True)
+        batters_section, pitchers_section = response_text.split(
+            '<section aria-labelledby="batters-title">', maxsplit=1
+        )[1].split(
+            '<section aria-labelledby="pitchers-title">', maxsplit=1
+        )
+        pitchers_section = pitchers_section.split("</section>", maxsplit=1)[0]
+
+        self.assertIn("Roster report", response_text)
+        self.assertIn("Batters (29)", response_text)
+        self.assertIn("Pitchers (26)", response_text)
+        self.assertIn("Yainer Diaz", batters_section)
+        self.assertNotIn("Jake Bennett", batters_section)
+        self.assertIn("Jake Bennett", pitchers_section)
+        self.assertNotIn("Yainer Diaz", pitchers_section)
         _validate_rules.assert_called_once()
 
     @patch("app.utils.validate_league_rules", return_value=([], ["Review player eligibility"]))
