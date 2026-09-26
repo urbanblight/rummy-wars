@@ -535,7 +535,7 @@ def validate_league_rules(
                 if is_milb(mlbam_player):
                     LOGGER.debug(f"{player.name} is currently on an MiLB team.")
                 else: 
-                    player_violations, player_warnings = _check_minors_player_stats(
+elif MODE != "offseason":
                         player, mlbam_player, mlbam_player_id
                     )
                     violations.extend(player_violations)
