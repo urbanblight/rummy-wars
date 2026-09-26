@@ -21,7 +21,10 @@ import models
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
 MAX_MINORS = int(os.getenv("MAX_MINORS")) if os.getenv("MAX_MINORS") else None
+MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB", "130"))
+MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP", "50"))
 MAX_RESERVES = int(os.getenv("MAX_RESERVES")) if os.getenv("MAX_RESERVES") else None
+MODE = os.getenv("MODE") if os.getenv("MODE") else "inseason"
 
 LOGGER = logger.setup_logger("utils")
 
@@ -48,6 +51,8 @@ def is_milb(mlbam_player: dict) -> bool:
     try:
         current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
         parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
+        if current_team_id is None or parent_org_id is None:
+            return False
         return int(current_team_id) != int(parent_org_id)
     except Exception as e:  # noqa: BLE001
         player_name = mlbam_player.get("fullName", "Unknown Player")
@@ -238,10 +243,10 @@ def get_mlb_career_totals(player: dict) -> dict:
         career_data = splits[0].get("stat", {})
 
         if group_name == "hitting":
-            result["ab"] = int(career_data.get("atBats", 0))
+            result["ab"] = int(career_data.get("atBats") or 0)
         elif group_name == "pitching":
             # IP comes back as a string (e.g., "2450.1")
-            result["ip"] = float(career_data.get("inningsPitched", 0.0))
+            result["ip"] = float(career_data.get("inningsPitched") or 0.0)
 
     return result
 
@@ -395,6 +400,56 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
                 
     return roster
 
+def _check_minors_player_stats(
+    player: models.Player,
+    mlbam_player: dict,
+    mlbam_player_id: int | str | None,
+) -> tuple[list[str], list[str]]:
+    """Check a minors player's MLB totals against league thresholds."""
+    violations = []
+    warnings = []
+    stats = get_mlb_career_totals(mlbam_player) if mlbam_player_id else None
+
+    if stats:
+        if player.player_type == 'Batter':
+            try:
+                if stats['ab'] > MAX_MINORS_AB:
+                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
+                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}"
+                    if MODE == "offseason":
+                        violations.append(milb_msg)
+                    elif MODE == "inseason":
+                        warnings.append(milb_msg)
+                    else:
+                        LOGGER.error(f"Unexpected MODE value: {MODE}")
+                else:
+                    LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
+            except Exception as e:  # noqa: BLE001
+                raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
+        elif player.player_type == 'Pitcher':
+            try:
+                if stats['ip'] > MAX_MINORS_IP:
+                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
+                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}"
+                    if MODE == "offseason":
+                        violations.append(milb_msg)
+                    elif MODE == "inseason":
+                        warnings.append(milb_msg)
+                    else:
+                        LOGGER.error(f"Unexpected MODE value: {MODE}")
+                else:
+                    LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
+            except Exception as e:  # noqa: BLE001
+                raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
+        else:
+            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
+            warnings.append(unexpected_position_warning)
+    else:
+        LOGGER.debug(f"{player.name} found MLB API but no stats found")
+
+    return violations, warnings
+
+
 def validate_league_rules(
     roster: models.TeamRoster,
     max_minors: int | None = MAX_MINORS,
@@ -409,18 +464,20 @@ def validate_league_rules(
 
     Args:
         roster: Team roster to validate.
-        max_minors: Maximum Minors players; defaults to MAX_MINORS or 20.
-        max_il: Maximum Injured-list players; defaults to MAX_IL or 8.
-        max_reserves: Maximum Reserve players; defaults to MAX_RESERVES or 7.
+        max_minors: Maximum Minors players; defaults to MAX_MINORS
+        max_il: Maximum Injured-list players; defaults to MAX_IL
+        max_reserves: Maximum Reserve players; defaults to MAX_RESERVES 
 
     Returns:
         A tuple containing human-readable violation and warning messages.
     """
 
-    max_minors = max_minors if max_minors is not None else int(os.getenv("MAX_MINORS", "20"))
+    max_minors = max_minors if max_minors is not None else int(
+        os.getenv("MAX_MINORS", "20")
+    )
     max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
     max_reserves = max_reserves if max_reserves is not None else int(
-        os.getenv("MAX_RESERVES", "7")
+        os.getenv("MAX_RESERVES", "0")
     )
 
     violations = []
@@ -455,8 +512,13 @@ def validate_league_rules(
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            il_warning = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
-            warnings.append(il_warning)
+            il_msg = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            if MODE == "offseason":
+                violations.append(il_msg)
+            elif MODE == "inseason":
+                warnings.append(il_msg)
+            else:
+                LOGGER.error(f"Unexpected MODE value: {MODE}")
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -464,36 +526,20 @@ def validate_league_rules(
             mlbam_player = get_mlbam_player_by_name(player.name)
             if mlbam_player:
                 mlbam_player_id = mlbam_player.get("id")
+                if MODE == "offseason":
+                    player_violations, player_warnings = _check_minors_player_stats(
+                                            player, mlbam_player, mlbam_player_id
+                                        )
+                    violations.extend(player_violations)
+                    warnings.extend(player_warnings)
                 if is_milb(mlbam_player):
                     LOGGER.debug(f"{player.name} is currently on an MiLB team.")
                 else: 
-                    stats = get_mlb_career_totals(mlbam_player) if mlbam_player_id else None
-                    if stats:
-                        if player.player_type == 'Batter':
-                            try:
-                                if stats['ab'] > 130:
-                                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_warning = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
-                                    warnings.append(milb_warning)
-                                else:
-                                    LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
-                            except Exception as e:  # noqa: BLE001
-                                raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
-                        elif player.player_type == 'Pitcher':
-                            try:
-                                if stats['ip'] > 50:
-                                    call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_warning = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
-                                    warnings.append(milb_warning)
-                                else:
-                                    LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
-                            except Exception as e: # noqa: BLE001
-                                    raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
-                        else:
-                            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
-                            warnings.append(unexpected_position_warning)
-                    else:
-                        LOGGER.debug(f"{player.name} found MLB API but no stats found")
+elif MODE != "offseason":
+                        player, mlbam_player, mlbam_player_id
+                    )
+                    violations.extend(player_violations)
+                    warnings.extend(player_warnings)
             else:
                 pass # LOGGER.debug(f"No player found in MLB API for {player.name}")
         except Exception as e:  # noqa: BLE001

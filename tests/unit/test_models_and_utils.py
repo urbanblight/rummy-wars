@@ -102,6 +102,16 @@ class RosterParsingTests(unittest.TestCase):
 class LeagueRuleUnitTests(unittest.TestCase):
     """Verify rule-limit reporting without making external MLB requests."""
 
+    @patch.dict("utils.os.environ", {}, clear=True)
+    def test_uses_default_rule_limits_when_environment_is_unset(self):
+        """Validation should use defaults when CI provides no .env file."""
+        violations, warnings = utils.validate_league_rules(
+            models.TeamRoster(), max_minors=None, max_il=None, max_reserves=None
+        )
+
+        self.assertEqual(violations, [])
+        self.assertEqual(warnings, [])
+
     @patch.dict(
         "utils.os.environ",
         {"MAX_MINORS": "1", "MAX_IL": "1", "MAX_RESERVES": "1"},

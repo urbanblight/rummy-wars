@@ -5,13 +5,17 @@ import logging
 import os
 import tempfile
 
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 import utils
 
 app = Flask(__name__)
+load_dotenv(dotenv_path='.env', override=False)
+load_dotenv(dotenv_path='.env.secrets', override=False)
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
-app.secret_key = "rummy-wars-local"
+app.secret_key = os.environ.get("SECRET_KEY", "rummy-wars-key")
+MODE = os.environ.get("MODE", "inseason")
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +38,8 @@ def evaluate_upload(file_storage):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    offseason = MODE == "offseason"
+    return render_template("index.html", offseason=offseason)
 
 
 @app.post("/evaluate")
@@ -69,5 +74,5 @@ def evaluate():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080")) # Default to Docker default
+    port = int(os.environ.get("PORT") or "8080") # Default to Docker default
     app.run(host="127.0.0.1", port=port, debug=True)
