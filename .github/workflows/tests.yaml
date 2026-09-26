@@ -18,7 +18,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements-dev.txt
+          pip install -r requirements/requirements-dev.txt
           playwright install --with-deps chromium
 
       - name: Run pytest with coverage
