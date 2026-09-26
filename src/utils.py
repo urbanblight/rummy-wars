@@ -183,7 +183,7 @@ def get_mlb_latest_activation(mlbam_player: dict) -> str:
         if not last_il_activation and ("activated" in desc and "injured list" in desc):
             last_il_activation = txn
 
-    return last_il_activation.get("date")
+    return last_il_activation.get("date") if last_il_activation else None
     
 def get_mlb_latest_callup(mlbam_id: str) -> str:
     """Return the most recent MLB promotion or recall date for a player.
