@@ -420,10 +420,12 @@ def validate_league_rules(
         A tuple containing human-readable violation and warning messages.
     """
 
-    max_minors = max_minors if max_minors is not None else int(os.getenv("MAX_MINORS"))
-    max_il = max_il if max_il is not None else int(os.getenv("MAX_IL"))
+    max_minors = max_minors if max_minors is not None else int(
+        os.getenv("MAX_MINORS", "0")
+    )
+    max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
     max_reserves = max_reserves if max_reserves is not None else int(
-        os.getenv("MAX_RESERVES")
+        os.getenv("MAX_RESERVES", "0")
     )
 
     violations = []
