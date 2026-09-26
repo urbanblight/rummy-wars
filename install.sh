@@ -1,9 +1,9 @@
-python3.10 -m venv .venv/
+python3 -m venv .venv/
 source .venv/bin/activate
-python3.10 -m pip install --upgrade pip
-python3.10 -m pip install -r requirements.txt
-python3.10 -m pip install -r requirements-dev.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 cd docs
 make html
 cd ..
-python3.10 -m playwright install chromium
+python -m playwright install chromium
