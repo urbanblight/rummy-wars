@@ -10,6 +10,7 @@
 *.userosscache
 *.sln.docstates
 *.env
+*.env.secrets
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -434,3 +435,6 @@ FodyWeavers.xsd
 
 #VS Code project config
 .vscode/
+
+# Python virtual environment
+.venv/
