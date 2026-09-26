@@ -184,6 +184,19 @@ class MlbMetadataHelperTests(unittest.TestCase):
         self.assertEqual(utils.get_mlb_career_totals(player()), {"ab": 130, "ip": 12.1})
 
     @patch("utils.requests.get")
+    def test_get_career_totals_treats_null_stats_as_zero(self, get):
+        get.return_value = FakeResponse({"people": [{"stats": [
+            {"group": {"displayName": "hitting"}, "splits": [
+                {"stat": {"atBats": None}}
+            ]},
+            {"group": {"displayName": "pitching"}, "splits": [
+                {"stat": {"inningsPitched": None}}
+            ]},
+        ]}]})
+
+        self.assertEqual(utils.get_mlb_career_totals(player()), {"ab": 0, "ip": 0.0})
+
+    @patch("utils.requests.get")
     def test_get_player_by_name_handles_http_and_empty_results(self, get):
         get.return_value = FakeResponse({}, status_code=404)
         self.assertIsNone(utils.get_mlbam_player_by_name("Unknown"))

@@ -51,6 +51,8 @@ def is_milb(mlbam_player: dict) -> bool:
     try:
         current_team_id = current_team.get("id") if current_team.get("id") else current_team.get("parentOrgId")
         parent_org_id = current_team.get("parentOrgId") if current_team.get("parentOrgId") else current_team_id
+        if current_team_id is None or parent_org_id is None:
+            return False
         return int(current_team_id) != int(parent_org_id)
     except Exception as e:  # noqa: BLE001
         player_name = mlbam_player.get("fullName", "Unknown Player")
@@ -241,10 +243,10 @@ def get_mlb_career_totals(player: dict) -> dict:
         career_data = splits[0].get("stat", {})
 
         if group_name == "hitting":
-            result["ab"] = int(career_data.get("atBats", 0))
+            result["ab"] = int(career_data.get("atBats") or 0)
         elif group_name == "pitching":
             # IP comes back as a string (e.g., "2450.1")
-            result["ip"] = float(career_data.get("inningsPitched", 0.0))
+            result["ip"] = float(career_data.get("inningsPitched") or 0.0)
 
     return result
 
