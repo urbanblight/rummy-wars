@@ -48,6 +48,10 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn("☕".encode(), response.data)
         self.assertNotIn(b'<span class="ball">', response.data)
 
+    def test_stat_value_filter_formats_missing_stats_as_placeholder(self):
+        """Missing stat values should render as a dash in templates."""
+        self.assertEqual(app.jinja_env.filters["stat_value"](None, "BA"), "-")
+
     def test_missing_upload_redirects_with_error(self):
         """A request without a file should return a flashed validation error."""
         response = self.client.post("/evaluate", follow_redirects=True)
