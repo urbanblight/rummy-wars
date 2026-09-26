@@ -89,7 +89,7 @@ class WebAppIntegrationTests(unittest.TestCase):
 
         runpy.run_path(str(app_path), run_name="__main__")
 
-        run.assert_called_once_with(host="127.0.0.1", port=9090, debug=True)
+        run.assert_called_once_with(host="127.0.0.1", port=9090)
 
     @patch("app.utils.validate_league_rules", return_value=([], []))
     def test_csv_upload_renders_evaluation_results(self, _validate_rules):
