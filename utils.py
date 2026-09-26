@@ -423,7 +423,7 @@ def validate_league_rules(
     """
 
     max_minors = max_minors if max_minors is not None else int(
-        os.getenv("MAX_MINORS", "0")
+        os.getenv("MAX_MINORS", "20")
     )
     max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
     max_reserves = max_reserves if max_reserves is not None else int(
