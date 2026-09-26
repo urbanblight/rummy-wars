@@ -226,7 +226,7 @@ class ValidatorBranchTests(unittest.TestCase):
         """Run validation with a roster assembled from the supplied players."""
         return utils.validate_league_rules(models.TeamRoster(players), **limits)
 
-    def test_unexpected_mode_suppresses_injured_and_minors_messages(self):
+    def test_unexpected_mode_uses_inseason_warnings(self):
         players = [
             roster_player("Injured", "Injured"),
             roster_player("Batter", "Minors"),
@@ -249,7 +249,11 @@ class ValidatorBranchTests(unittest.TestCase):
             violations, warnings = self.validate(players, max_minors=2)
 
         self.assertEqual(violations, [])
-        self.assertEqual(warnings, [])
+        self.assertEqual(warnings, [
+            "Injured is placed in an Injured slot and was activated 2026-06-01",
+            "Batter is in a Minors slot but has more than than the league maximum ABs for Minors (1). Most recent call up was 2026-06-01",
+            "Pitcher is in a Minors slot but has more than than the league maximum IPs for Minors (1). Most recent call up was 2026-06-01",
+        ])
 
     def test_parser_handles_empty_rows_sections_and_invalid_stats(self):
         """Parser should tolerate blank rows and malformed numeric fields."""

@@ -418,10 +418,8 @@ def _check_minors_player_stats(
                     milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}"
                     if MODE == "offseason":
                         violations.append(milb_msg)
-                    elif MODE == "inseason":
-                        warnings.append(milb_msg)
                     else:
-                        LOGGER.error(f"Unexpected MODE value: {MODE}")
+                        warnings.append(milb_msg)
                 else:
                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
             except Exception as e:  # noqa: BLE001
@@ -433,10 +431,8 @@ def _check_minors_player_stats(
                     milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}"
                     if MODE == "offseason":
                         violations.append(milb_msg)
-                    elif MODE == "inseason":
-                        warnings.append(milb_msg)
                     else:
-                        LOGGER.error(f"Unexpected MODE value: {MODE}")
+                        warnings.append(milb_msg)
                 else:
                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
             except Exception as e:  # noqa: BLE001
@@ -515,10 +511,8 @@ def validate_league_rules(
             il_msg = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
             if MODE == "offseason":
                 violations.append(il_msg)
-            elif MODE == "inseason":
-                warnings.append(il_msg)
             else:
-                LOGGER.error(f"Unexpected MODE value: {MODE}")
+                warnings.append(il_msg)
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -532,16 +526,18 @@ def validate_league_rules(
                                         )
                     violations.extend(player_violations)
                     warnings.extend(player_warnings)
-                if is_milb(mlbam_player):
-                    LOGGER.debug(f"{player.name} is currently on an MiLB team.")
-                else: 
-elif MODE != "offseason":
-                        player, mlbam_player, mlbam_player_id
-                    )
-                    violations.extend(player_violations)
-                    warnings.extend(player_warnings)
+                else:
+                    if is_milb(mlbam_player):
+                        LOGGER.debug(f"{player.name} is currently on an MiLB team.")
+                    else:
+                        LOGGER.debug(f"{player.name} is not currently on an MiLB team.")
+                        player_violations, player_warnings = _check_minors_player_stats(
+                            player, mlbam_player, mlbam_player_id
+                        )
+                        violations.extend(player_violations)
+                        warnings.extend(player_warnings)
             else:
-                pass # LOGGER.debug(f"No player found in MLB API for {player.name}")
+                LOGGER.debug(f"No player found in MLB API for {player.name}")
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(f"Unable to get MLB data for CBS name \"{player.name}\": {e}")
          
