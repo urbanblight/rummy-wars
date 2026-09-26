@@ -348,6 +348,23 @@ button:hover {
   bottom: -7px;
 }
 
+.stovetop {
+  position: absolute;
+  left: 21px;
+  bottom: 5px;
+  display: grid;
+  grid-template-columns: repeat(2, 42px);
+  gap: 8px 16px;
+}
+
+.burner {
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 4px 9px, var(--accent) 10px 12px, transparent 13px);
+}
+
 .ball {
   position: absolute;
   top: 110px;
@@ -358,6 +375,17 @@ button:hover {
   font-size: 25px;
   line-height: 1;
   animation: run-bases 4.8s linear infinite;
+}
+
+.coffee {
+  position: absolute;
+  top: 28px;
+  left: 26px;
+  width: 32px;
+  height: 32px;
+  font-size: 27px;
+  line-height: 1;
+  animation: brew-burners 4.8s linear infinite;
 }
 
 @keyframes run-bases {
@@ -375,6 +403,24 @@ button:hover {
   }
   100% {
     transform: translate(0, 0) rotate(1440deg);
+  }
+}
+
+@keyframes brew-burners {
+  0%, 8% {
+    transform: translate(0, 0);
+  }
+  25%, 33% {
+    transform: translate(58px, 0);
+  }
+  50%, 58% {
+    transform: translate(58px, 50px);
+  }
+  75%, 83% {
+    transform: translate(0, 50px);
+  }
+  100% {
+    transform: translate(0, 0);
   }
 }
 

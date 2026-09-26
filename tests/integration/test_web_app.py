@@ -26,6 +26,7 @@ class WebAppIntegrationTests(unittest.TestCase):
             Path(__file__).parents[2] / "tests/fixtures/cbs-roster-export.csv"
         )
 
+    @patch("app.MODE", "inseason")
     def test_home_page_contains_upload_and_loading_state(self):
         """The home page should expose upload controls and loading markup."""
         response = self.client.get("/")
@@ -34,6 +35,18 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn(b'Upload a roster CSV', response.data)
         self.assertIn(b'id="loading-screen"', response.data)
         self.assertIn(b'aria-busy="true"', response.data)
+        self.assertIn(b'<span class="ball">', response.data)
+        self.assertNotIn(b'class="stovetop"', response.data)
+
+    @patch("app.MODE", "offseason")
+    def test_offseason_loading_screen_uses_coffee_and_stovetop(self):
+        """Offseason mode should show the coffee-and-stovetop loader."""
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'class="stovetop"', response.data)
+        self.assertIn("☕".encode(), response.data)
+        self.assertNotIn(b'<span class="ball">', response.data)
 
     def test_missing_upload_redirects_with_error(self):
         """A request without a file should return a flashed validation error."""
