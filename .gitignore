@@ -438,3 +438,4 @@ FodyWeavers.xsd
 
 # Python virtual environment
 .venv/
+pytest.ini
