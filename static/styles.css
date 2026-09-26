@@ -360,9 +360,9 @@ button:hover {
 .burner {
   width: 42px;
   height: 42px;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--crimson-bg);
   border-radius: 50%;
-  background: radial-gradient(circle, var(--accent) 0 3px, transparent 4px 9px, var(--accent) 10px 12px, transparent 13px);
+  background: radial-gradient(circle, var(--crimson) 0 3px, transparent 4px 9px, var(--crimson) 10px 12px, transparent 13px);
 }
 
 .ball {
