@@ -21,7 +21,10 @@ import models
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
 MAX_MINORS = int(os.getenv("MAX_MINORS")) if os.getenv("MAX_MINORS") else None
+MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB")) if os.getenv("MAX_MINORS_AB") else 0
+MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP")) if os.getenv("MAX_MINORS_IP") else 0 
 MAX_RESERVES = int(os.getenv("MAX_RESERVES")) if os.getenv("MAX_RESERVES") else None
+MODE = os.getenv("MODE") if os.getenv("MODE") else "inseason"
 
 LOGGER = logger.setup_logger("utils")
 
@@ -455,8 +458,13 @@ def validate_league_rules(
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            il_warning = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
-            warnings.append(il_warning)
+            il_msg = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            if MODE == "offseason":
+                violations.append(il_msg)
+            elif MODE == "inseason":
+                warnings.append(il_msg)
+            else:
+                LOGGER.error(f"Unexpected MODE value: {MODE}")
 
     # Check if Minors players have few enough MLB ABs or IP to be slotted in MiLB slot
     for player in roster.get_by_status("Minors"):
@@ -471,20 +479,30 @@ def validate_league_rules(
                     if stats:
                         if player.player_type == 'Batter':
                             try:
-                                if stats['ab'] > 130:
+                                if stats['ab'] > MAX_MINORS_AB:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_warning = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
-                                    warnings.append(milb_warning)
+                                    milb_msg = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
+                                    if MODE == "offseason":
+                                        violations.append(milb_msg)
+                                    elif MODE == "inseason":
+                                        warnings.append(milb_msg)
+                                    else:
+                                        LOGGER.error(f"Unexpected MODE value: {MODE}")
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB AB: {stats['ab']}")
                             except Exception as e:  # noqa: BLE001
                                 raise models.RummyWarsBaseError(f"Unable to determine total MLB AB for {player.name}: {e}")
                         elif player.player_type == 'Pitcher':
                             try:
-                                if stats['ip'] > 50:
+                                if stats['ip'] > MAX_MINORS_IP:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_warning = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
-                                    warnings.append(milb_warning)
+                                    milb_msg = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
+                                    if MODE == "offseason":
+                                        violations.append(milb_msg)
+                                    elif MODE == "inseason":
+                                        warnings.append(milb_msg)
+                                    else:
+                                        LOGGER.error(f"Unexpected MODE value: {MODE}")
                                 else:
                                     LOGGER.debug(f"{player.name} All-Time MLB IP: {stats['ip']}")
                             except Exception as e: # noqa: BLE001
