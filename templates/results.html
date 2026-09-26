@@ -64,21 +64,21 @@
     {% endif %}
 
     <section class="roster-section" aria-labelledby="roster-title">
-      <div class="section-heading"><p class="panel-kicker">FULL ROSTER</p></div>
+      <h2 id="roster-title">Full roster</h2>
       {% set batters = roster.players|selectattr('player_type', 'equalto', 'Batter')|list %}
       {% set pitchers = roster.players|selectattr('player_type', 'equalto', 'Pitcher')|list %}
       {% set other_players = roster.players|rejectattr('player_type', 'equalto', 'Batter')|rejectattr('player_type', 'equalto', 'Pitcher')|list %}
       <section aria-labelledby="batters-title">
-        <h2 id="batters-title">Batters ({{ batters|length }})</h2>
+        <h3 id="batters-title">Batters ({{ batters|length }})</h3>
         {{ player_table(batters) }}
       </section>
       <section aria-labelledby="pitchers-title">
-        <h2 id="pitchers-title">Pitchers ({{ pitchers|length }})</h2>
+        <h3 id="pitchers-title">Pitchers ({{ pitchers|length }})</h3>
         {{ player_table(pitchers) }}
       </section>
       {% if other_players %}
         <section aria-labelledby="other-players-title">
-          <h2 id="other-players-title">Other player types ({{ other_players|length }})</h2>
+          <h3 id="other-players-title">Other player types ({{ other_players|length }})</h3>
           {{ player_table(other_players) }}
         </section>
       {% endif %}
