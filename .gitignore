@@ -435,3 +435,6 @@ FodyWeavers.xsd
 
 #VS Code project config
 .vscode/
+
+# Python virtual environment
+.venv/
