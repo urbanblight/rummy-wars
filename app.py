@@ -5,13 +5,16 @@ import logging
 import os
 import tempfile
 
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 import utils
 
 app = Flask(__name__)
+load_dotenv()
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
-app.secret_key = "rummy-wars-local"
+app.secret_key = os.environ.get("SECRET_KEY", "rummy-wars-key")
+MODE = os.environ.get("MODE", "inseason")
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +37,8 @@ def evaluate_upload(file_storage):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    offseason = MODE == "offseason"
+    return render_template("index.html", offseason=offseason)
 
 
 @app.post("/evaluate")

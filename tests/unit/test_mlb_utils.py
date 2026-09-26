@@ -238,12 +238,26 @@ class ValidatorBranchTests(unittest.TestCase):
     @patch("utils.get_mlb_latest_activation", return_value="2026-06-01")
     @patch("utils.is_il", return_value=False)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "inseason")
     def test_injured_player_adds_activation_warning(self, *_mocks):
         _, warnings = self.validate([roster_player("Injured", "Injured")])
 
         self.assertEqual(warnings, [
             "Injured is placed in an Injured slot and was activated 2026-06-01"
         ])
+
+    @patch("utils.get_mlb_latest_activation", return_value="2026-06-01")
+    @patch("utils.is_il", return_value=False)
+    @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "offseason")
+    def test_injured_player_adds_activation_violation(self, *_mocks):
+        violations, warnings = self.validate([roster_player("Injured", "Injured")])
+
+        self.assertIn(
+            "Injured is placed in an Injured slot and was activated 2026-06-01",
+            violations,
+        )
+        self.assertEqual(warnings, [])
 
     @patch("utils.is_il", return_value=True)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
@@ -256,19 +270,45 @@ class ValidatorBranchTests(unittest.TestCase):
     @patch("utils.get_mlb_career_totals", return_value={"ab": 131, "ip": 0})
     @patch("utils.is_milb", return_value=False)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "inseason")
     def test_batter_overage_adds_minors_warning(self, *_mocks):
         _, warnings = self.validate([roster_player("Batter", "Minors")])
 
-        self.assertIn("more than 130 AB", warnings[0])
+        self.assertIn("league maximum ABs for Minors", warnings[0])
+
+    @patch("utils.get_mlb_latest_callup", return_value="2026-06-01")
+    @patch("utils.get_mlb_career_totals", return_value={"ab": 131, "ip": 0})
+    @patch("utils.is_milb", return_value=False)
+    @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "offseason")
+    def test_batter_overage_adds_minors_violation(self, *_mocks):
+        violations, warnings = self.validate([roster_player("Batter", "Minors")])
+
+        self.assertIn("league maximum ABs for Minors", violations[0])
+        self.assertEqual(warnings, [])
 
     @patch("utils.get_mlb_latest_callup", return_value="2026-06-01")
     @patch("utils.get_mlb_career_totals", return_value={"ab": 0, "ip": 50.1})
     @patch("utils.is_milb", return_value=False)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "inseason")
     def test_pitcher_overage_adds_minors_warning(self, *_mocks):
         _, warnings = self.validate([roster_player("Pitcher", "Minors", "Pitcher")])
 
-        self.assertIn("more than 50 IP", warnings[0])
+        self.assertIn("league maximum IPs for Minors", warnings[0])
+
+    @patch("utils.get_mlb_latest_callup", return_value="2026-06-01")
+    @patch("utils.get_mlb_career_totals", return_value={"ab": 0, "ip": 50.1})
+    @patch("utils.is_milb", return_value=False)
+    @patch("utils.get_mlbam_player_by_name", return_value=player())
+    @patch("utils.MODE", "offseason")
+    def test_pitcher_overage_adds_minors_violation(self, *_mocks):
+        violations, warnings = self.validate(
+            [roster_player("Pitcher", "Minors", "Pitcher")]
+        )
+
+        self.assertIn("league maximum IPs for Minors", violations[0])
+        self.assertEqual(warnings, [])
 
     @patch("utils.get_mlb_career_totals", return_value={"ab": 0, "ip": 0})
     @patch("utils.is_milb", return_value=False)

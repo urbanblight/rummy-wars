@@ -412,18 +412,18 @@ def validate_league_rules(
 
     Args:
         roster: Team roster to validate.
-        max_minors: Maximum Minors players; defaults to MAX_MINORS or 20.
-        max_il: Maximum Injured-list players; defaults to MAX_IL or 8.
-        max_reserves: Maximum Reserve players; defaults to MAX_RESERVES or 7.
+        max_minors: Maximum Minors players; defaults to MAX_MINORS
+        max_il: Maximum Injured-list players; defaults to MAX_IL
+        max_reserves: Maximum Reserve players; defaults to MAX_RESERVES 
 
     Returns:
         A tuple containing human-readable violation and warning messages.
     """
 
-    max_minors = max_minors if max_minors is not None else int(os.getenv("MAX_MINORS", "20"))
-    max_il = max_il if max_il is not None else int(os.getenv("MAX_IL", "8"))
+    max_minors = max_minors if max_minors is not None else int(os.getenv("MAX_MINORS"))
+    max_il = max_il if max_il is not None else int(os.getenv("MAX_IL"))
     max_reserves = max_reserves if max_reserves is not None else int(
-        os.getenv("MAX_RESERVES", "7")
+        os.getenv("MAX_RESERVES")
     )
 
     violations = []
@@ -481,7 +481,7 @@ def validate_league_rules(
                             try:
                                 if stats['ab'] > MAX_MINORS_AB:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_msg = f"{player.name} is in a Minors slot but has more than 130 AB ({stats['ab']}). Most recent call up was {call_up_date}"
+                                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}"
                                     if MODE == "offseason":
                                         violations.append(milb_msg)
                                     elif MODE == "inseason":
@@ -496,7 +496,7 @@ def validate_league_rules(
                             try:
                                 if stats['ip'] > MAX_MINORS_IP:
                                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                                    milb_msg = f"{player.name} is in a Minors slot but has more than 50 IP ({stats['ip']}). Most recent call up was {call_up_date}"
+                                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}"
                                     if MODE == "offseason":
                                         violations.append(milb_msg)
                                     elif MODE == "inseason":
