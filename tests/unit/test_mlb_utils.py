@@ -75,6 +75,14 @@ class MlbMetadataHelperTests(unittest.TestCase):
         self.assertFalse(utils.is_milb(player("No Team")))
 
     @patch("utils.requests.get")
+    def test_is_milb_handles_malformed_team_ids(self, get):
+        get.return_value = FakeResponse({"people": [{
+            "currentTeam": {"id": "unknown", "parentOrgId": 22}
+        }]})
+
+        self.assertFalse(utils.is_milb(player("Malformed Team")))
+
+    @patch("utils.requests.get")
     def test_is_il_returns_false_for_inactive_player(self, get):
         get.return_value = FakeResponse({
             "people": [{"id": 42, "currentTeam": {"id": None}}]
@@ -217,6 +225,31 @@ class ValidatorBranchTests(unittest.TestCase):
     def validate(self, players, **limits):
         """Run validation with a roster assembled from the supplied players."""
         return utils.validate_league_rules(models.TeamRoster(players), **limits)
+
+    def test_unexpected_mode_suppresses_injured_and_minors_messages(self):
+        players = [
+            roster_player("Injured", "Injured"),
+            roster_player("Batter", "Minors"),
+            roster_player("Pitcher", "Minors", "Pitcher"),
+        ]
+        with (
+            patch("utils.MODE", "unexpected"),
+            patch("utils.MAX_MINORS_AB", 0),
+            patch("utils.MAX_MINORS_IP", 0),
+            patch("utils.get_mlbam_player_by_name", return_value=player()),
+            patch("utils.is_il", return_value=False),
+            patch("utils.get_mlb_latest_activation", return_value="2026-06-01"),
+            patch("utils.is_milb", return_value=False),
+            patch("utils.get_mlb_career_totals", side_effect=[
+                {"ab": 1, "ip": 0},
+                {"ab": 0, "ip": 1},
+            ]),
+            patch("utils.get_mlb_latest_callup", return_value="2026-06-01"),
+        ):
+            violations, warnings = self.validate(players)
+
+        self.assertEqual(violations, [])
+        self.assertEqual(warnings, [])
 
     def test_parser_handles_empty_rows_sections_and_invalid_stats(self):
         """Parser should tolerate blank rows and malformed numeric fields."""
