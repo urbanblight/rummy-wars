@@ -201,9 +201,9 @@ class MlbMetadataHelperTests(unittest.TestCase):
 class ValidatorBranchTests(unittest.TestCase):
     """Exercise validator warning and exception branches with mocked helpers."""
 
-    def validate(self, players):
+    def validate(self, players, **limits):
         """Run validation with a roster assembled from the supplied players."""
-        return utils.validate_league_rules(models.TeamRoster(players))
+        return utils.validate_league_rules(models.TeamRoster(players), **limits)
 
     def test_parser_handles_empty_rows_sections_and_invalid_stats(self):
         """Parser should tolerate blank rows and malformed numeric fields."""
@@ -282,7 +282,9 @@ class ValidatorBranchTests(unittest.TestCase):
     @patch("utils.get_mlbam_player_by_name", return_value=player())
     @patch("utils.MODE", "offseason")
     def test_batter_overage_adds_minors_violation(self, *_mocks):
-        violations, warnings = self.validate([roster_player("Batter", "Minors")])
+        violations, warnings = self.validate(
+            [roster_player("Batter", "Minors")], max_minors=20
+        )
 
         self.assertIn("league maximum ABs for Minors", violations[0])
         self.assertEqual(warnings, [])
@@ -304,7 +306,7 @@ class ValidatorBranchTests(unittest.TestCase):
     @patch("utils.MODE", "offseason")
     def test_pitcher_overage_adds_minors_violation(self, *_mocks):
         violations, warnings = self.validate(
-            [roster_player("Pitcher", "Minors", "Pitcher")]
+            [roster_player("Pitcher", "Minors", "Pitcher")], max_minors=20
         )
 
         self.assertIn("league maximum IPs for Minors", violations[0])
@@ -359,7 +361,7 @@ class ValidatorBranchTests(unittest.TestCase):
     def test_reserve_limit_is_a_violation(self):
         players = [roster_player(str(index), "Reserves") for index in range(8)]
 
-        violations, warnings = self.validate(players)
+        violations, warnings = self.validate(players, max_reserves=7)
 
         self.assertIn("Exceeded Reserve Slot Limit: 8/7", violations)
         self.assertEqual(warnings, [])
