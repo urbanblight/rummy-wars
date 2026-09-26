@@ -12,7 +12,7 @@
             <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
             <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
             <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
-            <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value if value is not none else '-' }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
+            <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
           </tr>
         {% endfor %}
       </tbody>

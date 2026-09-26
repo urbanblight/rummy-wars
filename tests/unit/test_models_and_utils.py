@@ -92,13 +92,13 @@ class RosterParsingTests(unittest.TestCase):
 
         self.assertEqual(len(roster.players), 3)
         self.assertEqual(roster.players[0].status, "Active")
-        self.assertEqual(roster.players[0].stats["BA"], ".250")
+        self.assertEqual(roster.players[0].stats["BA"], 0.250)
         self.assertEqual(roster.players[0].stats["HR"], 2)
         self.assertEqual(roster.players[1].status, "Minors")
         self.assertEqual(roster.players[1].stats["BA"], None)
         self.assertEqual(roster.players[2].player_type, "Pitcher")
-        self.assertEqual(roster.players[2].stats["ERA"], "3.50")
-        self.assertEqual(roster.players[2].stats["WHIP"], "1.20")
+        self.assertEqual(roster.players[2].stats["ERA"], 3.50)
+        self.assertEqual(roster.players[2].stats["WHIP"], 1.20)
 
 
 class LeagueRuleUnitTests(unittest.TestCase):

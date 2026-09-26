@@ -366,7 +366,7 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
                 if current_type == "Batter" and len(row) >= 13:
                     try:
                         stats = {
-                            "BA": f"{float(row[8]):.3f}".removeprefix("0") if row[8] != 'N/A' else None,
+                            "BA": float(row[8]) if row[8] != 'N/A' else None,
                             "R": int(row[9]) if row[9] else 0,
                             "HR": int(row[10]) if row[10] else 0,
                             "RBI": int(row[11]) if row[11] else 0,
@@ -377,8 +377,8 @@ def parse_cbs_roster_csv(file_path: str) -> models.TeamRoster:
                 elif current_type == "Pitcher" and len(row) >= 13:
                     try:
                         stats = {
-                            "ERA": f"{float(row[8]):.2f}" if row[8] != 'N/A' else None,
-                            "WHIP": f"{float(row[9]):.2f}" if row[9] != 'N/A' else None,
+                            "ERA": float(row[8]) if row[8] != 'N/A' else None,
+                            "WHIP": float(row[9]) if row[9] != 'N/A' else None,
                             "W": int(row[10]) if row[10] else 0,
                             "S": int(row[11]) if row[11] else 0,
                             "K": int(row[12]) if row[12] else 0,
