@@ -21,8 +21,8 @@ import models
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
 MAX_MINORS = int(os.getenv("MAX_MINORS")) if os.getenv("MAX_MINORS") else None
-MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB")) if os.getenv("MAX_MINORS_AB") else 0
-MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP")) if os.getenv("MAX_MINORS_IP") else 0 
+MAX_MINORS_AB = int(os.getenv("MAX_MINORS_AB", "130"))
+MAX_MINORS_IP = int(os.getenv("MAX_MINORS_IP", "50"))
 MAX_RESERVES = int(os.getenv("MAX_RESERVES")) if os.getenv("MAX_RESERVES") else None
 MODE = os.getenv("MODE") if os.getenv("MODE") else "inseason"
 
