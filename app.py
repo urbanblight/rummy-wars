@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 
 @app.template_filter("stat_value")
-def format_stat_value(value: float | int | None, key: str) -> str:
+def format_stat_value(value: float | None, key: str) -> str:
     """Format a Player stat for display, e.g. BA as ".275" and ERA/WHIP to 2 decimals."""
     if value is None:
         return "-"
