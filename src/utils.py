@@ -15,8 +15,11 @@ import re
 import requests
 from dotenv import load_dotenv
 
-import logger
-import models
+try:
+    from . import logger, models
+except ImportError:  # pragma: no cover - supports direct module imports
+    import logger
+    import models
 
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None

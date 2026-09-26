@@ -6,9 +6,7 @@ for minors and injured-list limits defined by the Rummy Wars league.
 
 import argparse
 
-import logger
-import models
-import utils
+from . import logger, models, utils
 
 LOGGER = logger.setup_logger("main")
 

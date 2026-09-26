@@ -8,7 +8,10 @@ import tempfile
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 
-import utils
+try:
+    from . import utils
+except ImportError:  # pragma: no cover - supports direct module imports
+    import utils
 
 app = Flask(__name__)
 
