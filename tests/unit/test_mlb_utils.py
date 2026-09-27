@@ -309,6 +309,16 @@ class ValidatorBranchTests(unittest.TestCase):
         )
         self.assertEqual(warnings, [])
 
+    @patch("utils.get_mlb_latest_activation")
+    @patch("utils.get_mlbam_player_by_name", return_value=None)
+    def test_injured_player_missing_from_mlb_is_skipped(self, get_player, get_activation):
+        violations, warnings = self.validate([roster_player("Injured", "Injured")])
+
+        self.assertEqual(violations, [])
+        self.assertEqual(warnings, [])
+        get_player.assert_called_once_with("Injured")
+        get_activation.assert_not_called()
+
     @patch("utils.is_il", return_value=True)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
     def test_injured_player_on_il_has_no_warning(self, *_mocks):
