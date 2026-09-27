@@ -102,7 +102,7 @@ class WebAppIntegrationTests(unittest.TestCase):
     @patch.dict("os.environ", {"PORT": "9090"})
     def test_script_entrypoint_uses_configured_port(self, run):
         """Running app.py as a script should pass its configured port to Flask."""
-        app_path = Path(__file__).parents[2] / "app.py"
+        app_path = Path(__file__).parents[2] / "src/app.py"
 
         runpy.run_path(str(app_path), run_name="__main__")
 

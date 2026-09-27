@@ -15,8 +15,11 @@ import re
 import requests
 from dotenv import load_dotenv
 
-import logger
-import models
+try:
+    from . import logger, models
+except ImportError:  # pragma: no cover - supports direct module imports
+    import logger
+    import models
 
 load_dotenv()
 MAX_IL = int(os.getenv("MAX_IL")) if os.getenv("MAX_IL") else None
@@ -180,7 +183,7 @@ def get_mlb_latest_activation(mlbam_player: dict) -> str:
         if not last_il_activation and ("activated" in desc and "injured list" in desc):
             last_il_activation = txn
 
-    return last_il_activation.get("date")
+    return last_il_activation.get("date") if last_il_activation else None
     
 def get_mlb_latest_callup(mlbam_id: str) -> str:
     """Return the most recent MLB promotion or recall date for a player.
@@ -276,7 +279,7 @@ def get_mlbam_player_by_name(cbs_name: str) -> dict | None:
     if not people:
         LOGGER.debug(f"Unable to match CBS name '{cbs_name}' to MLB player")
         return None
-    return max(people, key=lambda person: getattr(person, "birthDate", datetime.datetime.min)) # noqa: DTZ901
+    return max(people, key=lambda person: person.get("birthDate", "0000-00-00"))
 
 def parse_cbs_player_string(player_str: str):
     """Parse a CBS player string into name, positions, and team.
@@ -504,6 +507,9 @@ def validate_league_rules(
     # Check if player with injured status is on the IL
     for player in roster.get_by_status("Injured"):
         mlbam_player = get_mlbam_player_by_name(player.name)
+        if not mlbam_player:
+            LOGGER.debug(f"No player found in MLB API for {player.name}")
+            continue
         if is_il(mlbam_player):
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
