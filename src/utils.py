@@ -510,7 +510,7 @@ def validate_league_rules(
         if not mlbam_player:
             LOGGER.debug(f"No player found in MLB API for {player.name}")
             continue
-        if is_il(mlbam_player)
+        if is_il(mlbam_player):
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
