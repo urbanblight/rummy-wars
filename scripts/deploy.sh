@@ -8,12 +8,13 @@ fi
 
 set -euo pipefail
 
-# Deployment settings come from the local, untracked dotenv file.
+printf '%s\n' "Loading deployment settings from the local, untracked dotenv file."
 if [[ ! -f .env ]]; then
     printf '%s\n' 'deploy.sh requires a .env file containing the Cloud Run environment variables.' >&2
     exit 1
 fi
 
+printf '%s\n' "Loading environment variables for deployment."
 # Cloud Run provides PORT, and SECRET_KEY is loaded from Secret Manager below.
 ENV_VARS=$(awk -F= '
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
@@ -26,20 +27,22 @@ if [[ -z "$ENV_VARS" ]]; then
     exit 1
 fi
 
-# Build and publish an amd64 image for Cloud Run.
+printf '%s\n' "Building and publishing an amd64 image for Cloud Run."
 docker buildx build \
     --platform linux/amd64 \
     -t us-west1-docker.pkg.dev/rummy-wars/containers/rw-app:latest \
     -f ./Dockerfile \
     --push .
 
-# Resolve the pushed tag to a digest so the service deploys the exact image built above.
+printf '%s\n' "Resolving the pushed tag to a digest so the service deploys the exact image built above."
 DIGEST=$(gcloud artifacts docker images describe us-west1-docker.pkg.dev/rummy-wars/containers/rw-app:latest --format='value(image_summary.digest)')
 [[ -n "$DIGEST" ]] || { printf '%s\n' 'Unable to resolve the pushed image digest.' >&2; exit 1; }
-# Deploy the image, public service settings, runtime configuration, and secret.
+
+printf '%s\n' "Deploying the image, public service settings, runtime configuration, and secret."
 gcloud run deploy rw-service \
     --image us-west1-docker.pkg.dev/rummy-wars/containers/rw-app@$DIGEST \
     --region us-west1 \
     --set-env-vars "$ENV_VARS" \
     --set-secrets SECRET_KEY=SECRET_KEY:latest \
+    --min-instances 1 \
     --allow-unauthenticated
