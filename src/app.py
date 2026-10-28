@@ -9,9 +9,10 @@ from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 try:
-    from . import utils
+    from . import utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
     import utils
+    import zscores
 
 app = Flask(__name__)
 
@@ -28,8 +29,14 @@ def format_stat_value(value: float | None, key: str) -> str:
     return str(value)
 
 
+@app.template_filter("z_format")
+def format_z(value: float) -> str:
+    return f"{value:+.2f}"
+
+
 load_dotenv(dotenv_path='.env', override=False)
 load_dotenv(dotenv_path='.env.secrets', override=False)
+app.json.sort_keys = False  # keep scoring categories in league order
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 app.secret_key = os.environ.get("SECRET_KEY", "rummy-wars-key")
 MODE = os.environ.get("MODE", "inseason")
@@ -50,6 +57,7 @@ def evaluate_upload(file_storage):
         temporary_file.flush()
         roster = utils.parse_cbs_roster_csv(temporary_file.name)
         violations, warnings = utils.validate_league_rules(roster)
+    zscores.evaluate_roster(roster)
     return roster, violations, warnings
 
 
@@ -57,6 +65,11 @@ def evaluate_upload(file_storage):
 def index():
     offseason = MODE == "offseason"
     return render_template("index.html", offseason=offseason)
+
+
+@app.get("/teams")
+def teams():
+    return render_template("teams.html", teams=zscores.team_totals())
 
 
 @app.post("/evaluate")

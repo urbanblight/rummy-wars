@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}RUMMY WARS Team Z-Scores{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow">RUMMY WARS / TEAMS</p>
+        <h1>Team z-scores</h1>
+        <p class="muted">Sum of each owned player's total z-score, batters and pitchers.</p>
+      </div>
+      <a class="text-link" href="{{ url_for('index') }}">Check a roster <span aria-hidden="true">-></span></a>
+    </header>
+
+    {% if teams %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Team</th><th>Manager</th><th>Batting</th><th>Pitching</th><th>Total</th></tr></thead>
+          <tbody>
+            {% for team in teams %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td><strong>{{ team.name }}</strong><small>{{ team.abbrev }}</small></td>
+                <td>{{ team.manager }}</td>
+                <td>{{ team.batting_z|z_format }} <small>{{ team.batters }} players</small></td>
+                <td>{{ team.pitching_z|z_format }} <small>{{ team.pitchers }} players</small></td>
+                <td><strong>{{ team.total_z|z_format }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No team data yet. Run scripts/import_teams.py and scripts/import_cbs_stats.py.</p>
+    {% endif %}
+  </main>
+{% endblock %}

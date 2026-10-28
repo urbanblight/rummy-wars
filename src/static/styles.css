@@ -742,3 +742,146 @@ td small {
     padding: 34px 22px 30px;
   }
 }
+
+.z-icon {
+  padding: 2px 6px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.z-icon:hover,
+.z-icon:focus-visible {
+  background: var(--panel-dark);
+  outline: 2px solid var(--accent);
+}
+
+.z-modal {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  background: var(--primary);
+  color: var(--ink);
+  border: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px var(--navy), 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.z-modal::backdrop {
+  background: rgba(12, 35, 64, 0.8);
+}
+
+.z-board {
+  padding: 20px;
+  background: var(--paper);
+}
+
+.z-board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--primary-glow);
+}
+
+.z-board-head h2 {
+  margin: 4px 0 0;
+  font-size: 1.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.z-close {
+  padding: 0 10px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--primary-glow);
+  font-size: 1.5rem;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+.z-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0;
+  padding: 10px 16px;
+  background: var(--navy);
+  border: 2px solid var(--primary-glow);
+  letter-spacing: 0.2em;
+}
+
+.z-total strong {
+  font-size: 2.4rem;
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(253, 184, 39, 0.6);
+}
+
+.z-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.z-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  background: var(--navy);
+  border: 1px solid var(--primary-glow);
+}
+
+.z-cell span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+}
+
+.z-cell strong {
+  font-size: 1.5rem;
+  color: var(--ink);
+}
+
+.z-total strong.pos,
+.z-cell strong.pos {
+  color: #7ee08a;
+  text-shadow: 0 0 8px rgba(126, 224, 138, 0.5);
+}
+
+.z-total strong.neg,
+.z-cell strong.neg {
+  color: #ff7b72;
+  text-shadow: 0 0 8px rgba(255, 123, 114, 0.5);
+}
+
+.z-total-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.z-total small,
+.z-cell small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+.z-total span,
+.z-cell span,
+.z-total small,
+.z-cell small {
+  font-family: 'DM Mono', monospace;
+  text-transform: uppercase;
+}
+
+.z-total strong,
+.z-cell strong {
+  font-family: 'Impact', 'Arial Narrow', sans-serif;
+  font-weight: 400;
+  letter-spacing: 1px;
+}

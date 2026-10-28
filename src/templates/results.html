@@ -5,11 +5,12 @@
 {% macro player_table(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
+      <thead><tr><th>Player</th><th></th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
       <tbody>
         {% for player in players %}
           <tr>
             <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
+            <td>{% if player.z_total is not none %}<button type="button" class="z-icon" aria-label="Z-scores for {{ player.name }}" data-name="{{ player.name }}" data-z='{{ player.z_payload()|tojson }}'>📈</button>{% endif %}</td>
             <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
             <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
             <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
@@ -84,4 +85,60 @@
       {% endif %}
     </section>
   </main>
+
+  <dialog id="z-modal" class="z-modal" aria-labelledby="z-modal-title">
+    <div class="z-board">
+      <header class="z-board-head">
+        <div>
+          <p class="panel-kicker">LEAGUE Z-SCORES</p>
+          <h2 id="z-modal-title"></h2>
+        </div>
+        <button type="button" class="z-close" aria-label="Close">&times;</button>
+      </header>
+      <div class="z-total"><span>TOTAL</span><div class="z-total-value" id="z-modal-total"></div></div>
+      <div class="z-cells" id="z-modal-cells"></div>
+    </div>
+  </dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var modal = document.getElementById('z-modal');
+    function fmt(v) { return (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(2); }
+    function cls(v) { return v > 0.005 ? 'pos' : (v < -0.005 ? 'neg' : ''); }
+    function fill(el, z, rank) {
+      var value = document.createElement('strong');
+      value.textContent = fmt(z);
+      value.className = cls(z);
+      var rankEl = document.createElement('small');
+      rankEl.textContent = 'RANK #' + rank;
+      el.append(value, rankEl);
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.z-icon');
+      if (btn) {
+        var data = JSON.parse(btn.dataset.z);
+        document.getElementById('z-modal-title').textContent = btn.dataset.name;
+        var totalEl = document.getElementById('z-modal-total');
+        totalEl.textContent = '';
+        fill(totalEl, data.total.z, data.total.rank);
+        var cells = document.getElementById('z-modal-cells');
+        cells.textContent = '';
+        data.cats.forEach(function (c) {
+          var cell = document.createElement('div');
+          cell.className = 'z-cell';
+          var label = document.createElement('span');
+          label.textContent = c.cat;
+          cell.append(label);
+          fill(cell, c.z, c.rank);
+          cells.append(cell);
+        });
+        modal.showModal();
+      } else if (e.target === modal || e.target.closest('.z-close')) {
+        modal.close();
+      }
+    });
+  })();
+</script>
 {% endblock %}

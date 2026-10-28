@@ -24,6 +24,20 @@ class Player:
     status: str             # 'Active', 'Reserves', 'Injured', 'Minors'
     player_type: str        # 'Batter' or 'Pitcher'
     stats: dict[str, float | None] = field(default_factory=dict)
+    z_scores: dict[str, float] = field(default_factory=dict)
+    z_ranks: dict[str, int] = field(default_factory=dict)
+    z_total: float | None = None
+    z_total_rank: int | None = None
+
+    def z_payload(self) -> dict:
+        """Z-score data in league category order, for the results-page modal."""
+        return {
+            "total": {"z": self.z_total, "rank": self.z_total_rank},
+            "cats": [
+                {"cat": cat, "z": z, "rank": self.z_ranks.get(cat)}
+                for cat, z in self.z_scores.items()
+            ],
+        }
 
 
 @dataclass

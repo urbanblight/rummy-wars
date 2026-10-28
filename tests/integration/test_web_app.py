@@ -38,6 +38,19 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn(b'<span class="ball">', response.data)
         self.assertNotIn(b'class="stovetop"', response.data)
 
+    def test_teams_page_renders_team_totals(self):
+        """The teams page should list each team's total z-score."""
+        teams = [{
+            "id": 1, "name": "Ween", "abbrev": "DAISIES", "manager": "M",
+            "batting_z": 10.0, "batters": 12, "pitching_z": -2.5, "pitchers": 9, "total_z": 7.5,
+        }]
+        with patch("zscores.team_totals", return_value=teams):
+            response = self.client.get("/teams")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Ween", response.data)
+        self.assertIn(b"+7.50", response.data)
+
     @patch("app.MODE", "offseason")
     def test_offseason_loading_screen_uses_coffee_and_stovetop(self):
         """Offseason mode should show the coffee-and-stovetop loader."""
@@ -154,3 +167,4 @@ class WebAppIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main() # pragma: no cover
+
