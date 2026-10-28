@@ -6,11 +6,12 @@ import os
 import tempfile
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, url_for
 
 try:
-    from . import utils, zscores
+    from . import league, utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
+    import league
     import utils
     import zscores
 
@@ -68,6 +69,22 @@ def evaluate_upload(file_storage):
 def index():
     offseason = MODE == "offseason"
     return render_template("index.html", offseason=offseason)
+
+
+@app.get("/teams")
+def teams():
+    snapshot, league_teams = league.league_teams()
+    return render_template("teams.html", snapshot=snapshot, teams=league_teams)
+
+
+@app.get("/teams/<int:team_id>")
+def team(team_id: int):
+    found = league.get_team(team_id)
+    if found is None:
+        abort(404)
+    snapshot, _teams = league.league_teams()
+    players = zscores.load_players(team_id)
+    return render_template("team.html", team=found, snapshot=snapshot, batters=players["Batter"], pitchers=players["Pitcher"])
 
 
 @app.post("/evaluate")

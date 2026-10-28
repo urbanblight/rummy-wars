@@ -121,7 +121,7 @@ def test_compute_above_replacement_uses_top_free_agents_and_cheapest_eligible_po
         "team_id": [1, 2, 3, None, None, None, None, None, None],
         "z_total": [5.0, 5.0, 5.0, 3.0, 2.0, 1.0, -9.0, 4.0, 1.0],
     })
-    out = zscores.compute_above_replacement(df, "Batter", ["z_total"])
+    out = zscores.compute_above_replacement(df, "Batter", "z_total")
     # C replacement: mean of best 3 FA catchers = 2.0. 1B: only one FA, 4.0. SS: 1.0.
     assert out["z_total_above_replacement"].tolist()[:3] == [3.0, 1.0, 3.0]
     assert out.loc[8, "z_total_above_replacement"] == 0.0
@@ -130,21 +130,40 @@ def test_compute_above_replacement_uses_top_free_agents_and_cheapest_eligible_po
 
 def test_compute_above_replacement_is_nan_without_free_agents_at_the_position():
     df = pd.DataFrame({"positions": ["C", "1B"], "team_id": [1, None], "z_total": [5.0, 2.0]})
-    out = zscores.compute_above_replacement(df, "Batter", ["z_total"])
+    out = zscores.compute_above_replacement(df, "Batter", "z_total")
     assert pd.isna(out.loc[0, "z_total_above_replacement"])
     assert out.loc[1, "z_total_above_replacement"] == 0.0
 
 
-def test_compute_above_replacement_gives_each_category_its_own_replacement_level():
+def test_category_replacement_comes_from_the_same_players_as_the_total_and_adds_up():
+    # Free agents: A is best overall but poor in SB, B is a pure base stealer ranked lower overall.
     df = pd.DataFrame({
-        "positions": ["C", "C", "C"],
-        "team_id": [1, None, None],
-        "z_HR": [3.0, 1.0, 0.0],
-        "z_SB": [1.0, 2.0, 4.0],
+        "positions": ["C"] * 4,
+        "team_id": [1, None, None, None],
+        "z_HR": [3.0, 5.0, 0.0, -9.0],
+        "z_SB": [1.0, 0.0, 6.0, 0.0],
+        "z_total": [4.0, 5.0, 6.0, -9.0],
     })
-    out = zscores.compute_above_replacement(df, "Batter", ["z_HR", "z_SB"])
-    assert out.loc[0, "z_HR_above_replacement"] == 2.5
-    assert out.loc[0, "z_SB_above_replacement"] == -2.0
+    out = zscores.compute_above_replacement(df, "Batter", "z_total", ["z_HR", "z_SB"])
+    # Replacement players are the 5 best free agents (all 3 here); each category averages the same three.
+    assert out.loc[0, "z_total_above_replacement"] == pytest.approx(4.0 - (5.0 + 6.0 - 9.0) / 3)
+    assert out.loc[0, "z_HR_above_replacement"] == pytest.approx(3.0 - (5.0 + 0.0 - 9.0) / 3)
+    assert out.loc[0, "z_SB_above_replacement"] == pytest.approx(1.0 - (0.0 + 6.0 + 0.0) / 3)
+    parts = out.loc[0, ["z_HR_above_replacement", "z_SB_above_replacement"]].sum()
+    assert parts == pytest.approx(out.loc[0, "z_total_above_replacement"])
+
+
+def test_a_multi_position_player_uses_one_position_for_every_category():
+    df = pd.DataFrame({
+        "positions": ["C,1B", "C", "1B"],
+        "team_id": [1, None, None],
+        "z_HR": [0.0, 1.0, 4.0],
+        "z_total": [0.0, 1.0, 4.0],
+    })
+    out = zscores.compute_above_replacement(df, "Batter", "z_total", ["z_HR"])
+    # Lowest replacement total is C (1.0), so the HR baseline is also the catcher's.
+    assert out.loc[0, "z_total_above_replacement"] == -1.0
+    assert out.loc[0, "z_HR_above_replacement"] == -1.0
 
 
 def test_z_total_is_the_average_of_the_category_z_scores():
@@ -159,7 +178,7 @@ def test_replacement_level_averages_the_five_best_free_agents():
         "team_id": [1, None, None, None, None, None, None],
         "z_total": [9.0, 6.0, 5.0, 4.0, 3.0, 2.0, -50.0],
     })
-    out = zscores.compute_above_replacement(df, "Batter", ["z_total"])
+    out = zscores.compute_above_replacement(df, "Batter", "z_total")
     assert zscores.REPLACEMENT_POOL == 5
     assert out.loc[0, "z_total_above_replacement"] == 9.0 - 4.0
 
@@ -176,3 +195,14 @@ def test_scoring_stat_derives_category_values_from_a_stats_row():
     assert zscores.scoring_stat(row, "BA", {"BA": "AVG"}) == .27
     assert zscores.scoring_stat(row, "INN", {"INN": "INNs"}) == 60.0
     assert zscores.scoring_stat(row, "HR", {}) == 12
+
+
+def test_pool_is_the_top_250_ranked_players_of_each_table():
+    assert zscores.POOL_SIZE == 250
+    in_pool = [10, 20] * 125
+    df = pd.DataFrame({"rank": list(range(1, 301)), "HR": in_pool + [1000] * 50})
+    out = zscores.compute_z_scores(df, ["HR"], {})
+    # The 50 players beyond the pool do not move its average (15) or spread.
+    assert out.loc[0, "z_HR"] < 0 < out.loc[1, "z_HR"]
+    assert out.loc[0, "z_HR"] == -out.loc[1, "z_HR"]
+    assert out.loc[299, "z_HR"] > 100

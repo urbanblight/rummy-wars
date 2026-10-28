@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app
+import models
 
 
 class WebAppIntegrationTests(unittest.TestCase):
@@ -38,10 +39,54 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn(b'<span class="ball">', response.data)
         self.assertNotIn(b'class="stovetop"', response.data)
 
-    def test_teams_route_is_removed(self):
-        """The team totals page no longer exists."""
-        self.assertEqual(self.client.get("/teams").status_code, 404)
-        self.assertNotIn("/teams", self.client.get("/").get_data(as_text=True))
+    def test_home_page_links_to_teams(self):
+        """The home page links to the teams page below the league links."""
+        text = self.client.get("/").get_data(as_text=True)
+        self.assertIn('href="/teams"', text)
+        self.assertLess(text.index("Constitution"), text.index('href="/teams"'))
+
+    def test_teams_page_lists_teams_in_standings_order_with_links(self):
+        """Each team links to its own players page, in the order the data layer returns."""
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        teams = [
+            {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5},
+            {"id": 2, "name": "Jesus Jones", "abbrev": "RH", "manager": "Matt U", "rank": 2, "total_points": 120.0},
+        ]
+        with patch("app.league.league_teams", return_value=(snapshot, teams)):
+            text = self.client.get("/teams").get_data(as_text=True)
+
+        self.assertIn('href="/teams/7"', text)
+        self.assertIn('href="/teams/2"', text)
+        self.assertLess(text.index("The Outfield"), text.index("Jesus Jones"))
+        self.assertIn("2026 standings", text)
+
+    def test_team_page_lists_the_teams_players_with_the_advanced_modal(self):
+        """A team page shows its batters and pitchers using the shared player table."""
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        batter = models.Player(
+            name="Test Batter", roster_slot="", eligible_positions=["C"], team="HOU", status="", player_type="Batter",
+            scoring_stats={"HR": 20.0, "BA": 0.275},
+            z_scores={"HR": 1.0}, z_ranks={"HR": 3}, z_total=1.0, z_total_rank=3,
+            sgp_above_replacement={"total": (2.5, 9), "HR": (1.0, 4)},
+        )
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.zscores.load_players", return_value={"Batter": [batter], "Pitcher": []}):
+            text = self.client.get("/teams/7").get_data(as_text=True)
+
+        self.assertIn("The Outfield", text)
+        self.assertIn("Test Batter", text)
+        self.assertIn("Batters (1)", text)
+        self.assertIn("+2.50", text)
+        self.assertIn("BA&nbsp;.275", text)
+        self.assertIn('id="adv-modal"', text)
+        self.assertNotIn("<th>Slot</th>", text)
+        self.assertNotIn("<th>Status</th>", text)
+
+    def test_unknown_team_returns_404(self):
+        with patch("app.league.get_team", return_value=None):
+            self.assertEqual(self.client.get("/teams/999").status_code, 404)
 
     @patch("app.MODE", "offseason")
     def test_offseason_loading_screen_uses_coffee_and_stovetop(self):

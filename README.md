@@ -14,7 +14,7 @@ To access the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball pla
 
 ## Refreshing the stats database
 
-The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in `data/stats.db` (not tracked by git). Rebuild them whenever the source files change:
+The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in `data/stats.db` (not tracked by git). The Teams pages (`/teams`, listed in the order of the latest imported standings, and `/teams/<id>` for each team's players) read the same database. Rebuild it whenever the source files change:
 
 ```bash
 source .venv/bin/activate

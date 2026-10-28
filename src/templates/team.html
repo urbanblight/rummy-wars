@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_players.html" import player_table, advanced_modal, advanced_modal_script %}
+
+{% block title %}RUMMY WARS {{ team.name }}{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow">RUMMY WARS / TEAMS</p>
+        <h1>{{ team.name }}</h1>
+        <p class="muted">
+          {{ team.manager }}{% if team.rank is not none %} &middot; #{{ team.rank }} in the {{ snapshot.season_year }} standings with {{ team.total_points }} points{% endif %}
+        </p>
+      </div>
+      <a class="text-link" href="{{ url_for('teams') }}">All teams <span aria-hidden="true">-></span></a>
+    </header>
+
+    <section class="roster-section" aria-labelledby="roster-title">
+      <h2 id="roster-title">Players</h2>
+      <section aria-labelledby="batters-title">
+        <h3 id="batters-title">Batters ({{ batters|length }})</h3>
+        {{ player_table(batters, show_roster=False) }}
+      </section>
+      <section aria-labelledby="pitchers-title">
+        <h3 id="pitchers-title">Pitchers ({{ pitchers|length }})</h3>
+        {{ player_table(pitchers, show_roster=False) }}
+      </section>
+    </section>
+  </main>
+
+  {{ advanced_modal() }}
+{% endblock %}
+
+{% block scripts %}
+{{ advanced_modal_script() }}
+{% endblock %}

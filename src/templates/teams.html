@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}RUMMY WARS Teams{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow">RUMMY WARS / TEAMS</p>
+        <h1>Teams</h1>
+        <p class="muted">
+          {% if snapshot %}Ordered by the {{ snapshot.season_year }} standings (as of {{ snapshot.as_of_date }}).{% else %}No standings imported yet.{% endif %}
+        </p>
+      </div>
+      <a class="text-link" href="{{ url_for('index') }}">Home <span aria-hidden="true">-></span></a>
+    </header>
+
+    {% if teams %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th></tr></thead>
+          <tbody>
+            {% for team in teams %}
+              <tr>
+                <td class="num">{{ team.rank if team.rank is not none }}</td>
+                <td><a class="team-link" href="{{ url_for('team', team_id=team.id) }}"><strong>{{ team.name }}</strong></a></td>
+                <td>{{ team.manager }}</td>
+                <td class="num">{{ team.total_points if team.total_points is not none }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No team data yet. Run scripts/refresh.py.</p>
+    {% endif %}
+  </main>
+{% endblock %}
