@@ -83,8 +83,11 @@ def team(team_id: int):
     if found is None:
         abort(404)
     snapshot, _teams = league.league_teams()
-    players = zscores.load_players(team_id)
-    return render_template("team.html", team=found, snapshot=snapshot, batters=players["Batter"], pitchers=players["Pitcher"])
+    lineup, players = zscores.load_team_roster(team_id)
+    return render_template(
+        "team.html", team=found, snapshot=snapshot, lineup=lineup,
+        batters=players["Batter"], pitchers=players["Pitcher"],
+    )
 
 
 @app.post("/evaluate")

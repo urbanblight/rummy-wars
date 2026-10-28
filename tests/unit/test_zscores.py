@@ -123,16 +123,16 @@ def test_compute_above_replacement_uses_top_free_agents_and_cheapest_eligible_po
     })
     out = zscores.compute_above_replacement(df, "Batter", "z_total")
     # C replacement: mean of best 3 FA catchers = 2.0. 1B: only one FA, 4.0. SS: 1.0.
-    assert out["z_total_above_replacement"].tolist()[:3] == [3.0, 1.0, 3.0]
+    # UT (every hitter): mean of the 3 best free agents overall = 3.0, so the 1B uses UT.
+    assert out["z_total_above_replacement"].tolist()[:3] == [3.0, 2.0, 3.0]
     assert out.loc[8, "z_total_above_replacement"] == 0.0
     assert out.loc[0, "z_total_above_replacement_rank"] == 1
 
 
-def test_compute_above_replacement_is_nan_without_free_agents_at_the_position():
-    df = pd.DataFrame({"positions": ["C", "1B"], "team_id": [1, None], "z_total": [5.0, 2.0]})
+def test_compute_above_replacement_is_nan_without_any_free_agents():
+    df = pd.DataFrame({"positions": ["C", "1B"], "team_id": [1, 2], "z_total": [5.0, 2.0]})
     out = zscores.compute_above_replacement(df, "Batter", "z_total")
-    assert pd.isna(out.loc[0, "z_total_above_replacement"])
-    assert out.loc[1, "z_total_above_replacement"] == 0.0
+    assert out["z_total_above_replacement"].isna().all()
 
 
 def test_category_replacement_comes_from_the_same_players_as_the_total_and_adds_up():
@@ -206,3 +206,107 @@ def test_pool_is_the_top_250_ranked_players_of_each_table():
     assert out.loc[0, "z_HR"] < 0 < out.loc[1, "z_HR"]
     assert out.loc[0, "z_HR"] == -out.loc[1, "z_HR"]
     assert out.loc[299, "z_HR"] > 100
+
+
+def test_replacement_positions_make_every_hitter_ut_eligible():
+    assert zscores.replacement_positions("C", "Batter") == ["C", "UT"]
+    assert zscores.replacement_positions("DH", "Batter") == ["UT"]
+    assert zscores.replacement_positions("SP", "Pitcher") == ["SP"]
+
+
+def test_tiny_samples_cannot_set_the_replacement_level():
+    df = pd.DataFrame({
+        "positions": ["DH", "DH", "DH", "1B"],
+        "team_id": [None, None, 1, None],
+        "AB": [5, 400, 500, 450],
+        "z_total": [-12.0, 2.0, 5.0, 6.0],
+    })
+    out = zscores.compute_above_replacement(df, "Batter", "z_total")
+    # The 5-AB DH is not a candidate, and UT counts every hitter: the best of the 3 candidates sets the level.
+    assert out.loc[2, "z_total_above_replacement"] == pytest.approx(5.0 - (6.0 + 2.0) / 2)
+    # The 5-AB player is judged against that same level, not against himself.
+    assert out.loc[0, "z_total_above_replacement"] == pytest.approx(-12.0 - 4.0)
+
+
+def test_a_catcher_is_measured_at_the_lowest_of_his_position_and_ut():
+    df = pd.DataFrame({
+        "positions": ["C", "C", "1B", "LF"],
+        "team_id": [1, None, None, None],
+        "AB": [500, 400, 400, 400],
+        "z_total": [3.0, -3.0, 6.0, 4.0],
+    })
+    out = zscores.compute_above_replacement(df, "Batter", "z_total")
+    # C replacement is -3.0; UT replacement is the mean of all three free agents (2.33), higher, so C is used.
+    assert out.loc[0, "z_total_above_replacement"] == pytest.approx(3.0 - (-3.0))
+
+
+def test_pitcher_roles_follow_usage_not_cbs_eligibility():
+    df = pd.DataFrame({
+        "positions": ["SP,RP", "SP,RP", "RP", "SP", "SP,RP"],
+        "GS": [0, 20, 0, 0, 0],
+        "APP": [60, 30, 50, 0, 0],
+    })
+    roles = zscores.pitcher_roles(df)
+    # Reliever, starter, reliever, no appearances (falls back to CBS: SP), no appearances (SP,RP).
+    assert roles.tolist() == [["RP"], ["SP"], ["RP"], ["SP"], ["SP", "RP"]]
+
+
+def test_a_swingman_reliever_does_not_set_the_starter_replacement_level():
+    df = pd.DataFrame({
+        "positions": ["SP", "SP,RP", "SP", "RP", "RP"],
+        "team_id": [1, None, None, None, None],
+        "GS": [30, 0, 25, 0, 0],
+        "APP": [30, 60, 25, 60, 60],
+        "INNs": [180, 70, 150, 70, 70],
+        "z_total": [4.0, 10.0, 0.0, 6.0, 8.0],
+    })
+    out = zscores.compute_above_replacement(df, "Pitcher", "z_total")
+    # Starters' replacement is the lone free-agent starter (0.0); the reliever with SP eligibility is an RP.
+    assert out.loc[0, "z_total_above_replacement"] == 4.0
+    # Relievers' replacement is the average of the three free-agent relievers.
+    assert out.loc[3, "z_total_above_replacement"] == pytest.approx(6.0 - 8.0)
+
+
+def test_active_pitcher_slots_split_evenly_within_the_caps(monkeypatch):
+    monkeypatch.setenv("PITCHING_ACTIVE_SLOTS", "10")
+    monkeypatch.setenv("MAX_ACTIVE_SP", "6")
+    monkeypatch.setenv("MAX_ACTIVE_RP", "6")
+    assert zscores.active_pitcher_slots() == {"SP": 5, "RP": 5}
+    monkeypatch.setenv("MAX_ACTIVE_SP", "4")
+    assert zscores.active_pitcher_slots() == {"SP": 4, "RP": 6}
+    monkeypatch.setenv("MAX_ACTIVE_SP", "10")
+    monkeypatch.setenv("MAX_ACTIVE_RP", "3")
+    assert zscores.active_pitcher_slots() == {"SP": 7, "RP": 3}
+
+
+def _depth_frame():
+    # Two teams own the six best relievers; one weak free agent and one strong free agent remain.
+    return pd.DataFrame({
+        "positions": ["RP"] * 8,
+        "team_id": [1, 1, 1, 2, 2, 2, None, None],
+        "GS": [0] * 8,
+        "APP": [50] * 8,
+        "INNs": [60] * 8,
+        "z_total": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, -5.0],
+    })
+
+
+def test_slot_depth_sets_a_higher_replacement_level_than_a_weak_waiver_wire(monkeypatch):
+    monkeypatch.setattr(zscores, "REPLACEMENT_POOL", 3)
+    monkeypatch.setattr(zscores, "MIN_REPLACEMENT_VOLUME", {"Batter": 0, "Pitcher": 0})
+    df = _depth_frame()
+    # Waiver wire alone: mean(3, -5) = -1. Last active slot is rank 2 teams * 3 = 6; players ranked 5-7 average 4.
+    base = zscores.compute_above_replacement(df, "Pitcher", "z_total")
+    deep = zscores.compute_above_replacement(df, "Pitcher", "z_total", slots={"RP": 3})
+    assert base.loc[0, "z_total_above_replacement"] == pytest.approx(9.0 - (-1.0))
+    assert deep.loc[0, "z_total_above_replacement"] == pytest.approx(9.0 - 4.0)
+
+
+def test_slot_depth_never_lowers_a_strong_waiver_wire(monkeypatch):
+    monkeypatch.setattr(zscores, "REPLACEMENT_POOL", 3)
+    monkeypatch.setattr(zscores, "MIN_REPLACEMENT_VOLUME", {"Batter": 0, "Pitcher": 0})
+    df = _depth_frame()
+    df.loc[[6, 7], "z_total"] = [20.0, 18.0]
+    base = zscores.compute_above_replacement(df, "Pitcher", "z_total")
+    deep = zscores.compute_above_replacement(df, "Pitcher", "z_total", slots={"RP": 3})
+    assert deep.loc[0, "z_total_above_replacement"] == base.loc[0, "z_total_above_replacement"]

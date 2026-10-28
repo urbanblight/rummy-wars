@@ -22,7 +22,11 @@ UNRANKED = 9999
 DEFAULT_ACTIVE_SLOTS = 10
 # Replacement level at a position is the average of this many best free agents there.
 REPLACEMENT_POOL = 5
+# Free agents need at least this much playing time (AB or innings) to count toward replacement level.
+MIN_REPLACEMENT_VOLUME = {"Batter": 100, "Pitcher": 30}
 PITCHER_POSITIONS = {"SP", "RP"}
+# A pitcher who starts at least this share of his appearances is a starter, otherwise a reliever.
+STARTER_SHARE = 0.5
 ABOVE_REPLACEMENT = "above_replacement"
 
 # Scoring category -> how to derive it from the imported table's columns.
@@ -157,8 +161,80 @@ def standings_innings(conn: sqlite3.Connection) -> float | None:
     return row[0] if row else None
 
 
+def latest_active_lineups(conn: sqlite3.Connection) -> pd.DataFrame | None:
+    """Players in each team's active slots in its most recent imported lineup, or None.
+
+    Columns: ``team_id``, ``norm_name``, ``player_type`` and ``slot``. Needs the ``lineups``
+    table from ``scripts/import_lineups.py``.
+    """
+    try:
+        lineups = pd.read_sql_query(
+            """
+            SELECT l.team_id, l.norm_name, l.player_type, l.slot
+            FROM lineups l
+            JOIN (SELECT team_id, MAX(effective_date || printf('%06d', IFNULL(period_id, 0))) AS latest
+                  FROM lineups GROUP BY team_id) m
+              ON m.team_id = l.team_id
+             AND l.effective_date || printf('%06d', IFNULL(l.period_id, 0)) = m.latest
+            WHERE l.status = 'Active'
+            """,
+            conn,
+        )
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        return None
+    return lineups if not lineups.empty else None
+
+
+def lineup_slot_counts(lineups: pd.DataFrame | None, player_type: str) -> dict[str, float]:
+    """Average active slots per team by slot name (``C``, ``DH``, ``SP``...), from real lineups."""
+    if lineups is None:
+        return {}
+    teams = lineups["team_id"].nunique()
+    counts = lineups[lineups["player_type"] == player_type].groupby("slot").size()
+    return {slot: count / teams for slot, count in counts.items()}
+
+
+def active_lineup_volume(df: pd.DataFrame, lineups: pd.DataFrame, player_type: str) -> float | None:
+    """Average, across teams, of the playing time of the players in a team's active slots.
+
+    Players are matched to the stats table by fantasy team and name. Returns None when
+    no active player of that type can be matched.
+    """
+    playing_time = PLAYING_TIME_COLUMN[player_type]
+    active = lineups[lineups["player_type"] == player_type][["team_id", "norm_name"]].astype({"team_id": "Int64"})
+    if active.empty:
+        return None
+    stats = df[df["team_id"].notna()][["team_id", "norm_name", playing_time]].astype({"team_id": "Int64"})
+    matched = active.merge(stats, on=["team_id", "norm_name"])
+    if matched.empty:
+        return None
+    return float(matched.groupby("team_id")[playing_time].sum().mean())
+
+
+def roster_coverage(conn: sqlite3.Connection, lineups: pd.DataFrame) -> float:
+    """How much of a team's season innings its final active lineup accounts for, as a multiplier.
+
+    The lineups are a snapshot, so players who threw innings earlier in the season for the
+    team but are no longer active are missing. The real team innings from the standings,
+    divided by the active pitchers' innings, measures that; it is at least 1.
+    """
+    try:
+        innings = standings_innings(conn)
+        pitching = pd.read_sql_query("SELECT team_id, norm_name, INNs FROM pitching", conn)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        return 1.0
+    active = active_lineup_volume(pitching, lineups, "Pitcher")
+    return max(innings / active, 1.0) if innings and active else 1.0
+
+
 def team_volume(conn: sqlite3.Connection, df: pd.DataFrame, player_type: str) -> float:
-    """Typical team playing time: real team innings for pitchers, a lineup's AB for batters."""
+    """Typical team playing time (AB or innings), from the best source available.
+
+    Pitchers use the real team innings in the standings. Otherwise, and for batters, the
+    active lineups are used: the playing time of the players in a team's active slots,
+    scaled for batters by ``roster_coverage`` because a lineup is a snapshot. Without
+    lineups, a team's most-used players stand in for its active slots.
+    """
     playing_time = PLAYING_TIME_COLUMN[player_type]
     if player_type == "Pitcher":
         try:
@@ -167,6 +243,11 @@ def team_volume(conn: sqlite3.Connection, df: pd.DataFrame, player_type: str) ->
             innings = None
         if innings:
             return innings
+    lineups = latest_active_lineups(conn)
+    if lineups is not None:
+        volume = active_lineup_volume(df, lineups, player_type)
+        if volume:
+            return volume * roster_coverage(conn, lineups) if player_type == "Batter" else volume
     return lineup_volume(df, playing_time, active_slots(player_type))
 
 
@@ -223,19 +304,47 @@ def eligible_positions(positions: str | None, player_type: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def replacement_positions(positions: str | None, player_type: str) -> list[str]:
+    """Positions a player can be measured at for replacement: his own, plus UT for every hitter."""
+    found = eligible_positions(positions, player_type)
+    if player_type == "Batter" and "UT" not in found:
+        found.append("UT")
+    return found
+
+
+def pitcher_roles(df: pd.DataFrame) -> pd.Series:
+    """Each pitcher's role as ``["SP"]`` or ``["RP"]``, from how he is actually used.
+
+    A pitcher who started at least half of his appearances is a starter, otherwise a
+    reliever, whatever CBS lists him as eligible for. Pitchers with no appearances (or a
+    table without ``GS``/``APP``) fall back to their CBS eligibility.
+    """
+    cbs = df["positions"].map(lambda value: eligible_positions(value, "Pitcher"))
+    if not {"GS", "APP"} <= set(df.columns):
+        return cbs
+    roles = []
+    for starts, appearances, fallback in zip(df["GS"].fillna(0), df["APP"].fillna(0), cbs):
+        if appearances > 0:
+            roles.append(["SP" if starts / appearances >= STARTER_SHARE else "RP"])
+        else:
+            roles.append(fallback)
+    return pd.Series(roles, index=df.index)
+
+
 def replacement_levels(
-    df: pd.DataFrame, total_column: str, eligible: pd.Series, columns: list[str]
+    df: pd.DataFrame, total_column: str, eligible: pd.Series, columns: list[str], candidates: pd.Series
 ) -> dict[str, dict[str, float]]:
     """Position -> ``{column: average value}`` of that position's replacement players.
 
     The replacement players at a position are the ``REPLACEMENT_POOL`` free agents
     eligible there with the highest ``total_column``. Every column's level is the
     average over those same players, so the category levels describe one realistic
-    free agent and add up to the total's level. Free agents are players without a
-    ``team_id``; those without a total (NaN) are ignored.
+    free agent and add up to the total's level. Only ``candidates`` (a boolean mask
+    of eligible free agents) are considered.
     """
-    free = df["team_id"].isna() & df[total_column].notna()
-    pool = pd.DataFrame({"position": eligible[free], "total": df.loc[free, total_column]}).explode("position")
+    pool = pd.DataFrame(
+        {"position": eligible[candidates], "total": df.loc[candidates, total_column]}
+    ).explode("position")
     pool = pool.dropna(subset=["position"])
     levels = {}
     for position, group in pool.groupby("position"):
@@ -244,20 +353,81 @@ def replacement_levels(
     return levels
 
 
+def active_pitcher_slots(lineups: pd.DataFrame | None = None) -> dict[str, float]:
+    """Active slots per pitcher role on a typical team.
+
+    Taken from the real active lineups when available. Otherwise ``PITCHING_ACTIVE_SLOTS``
+    is split evenly between SP and RP, then kept within ``MAX_ACTIVE_SP`` and
+    ``MAX_ACTIVE_RP`` (each role gets at least the slots the other role cannot take).
+    """
+    counts = lineup_slot_counts(lineups, "Pitcher")
+    if {"SP", "RP"} <= counts.keys():
+        return {"SP": counts["SP"], "RP": counts["RP"]}
+    total = int(os.getenv("PITCHING_ACTIVE_SLOTS", DEFAULT_ACTIVE_SLOTS))
+    max_sp = int(os.getenv("MAX_ACTIVE_SP", total))
+    max_rp = int(os.getenv("MAX_ACTIVE_RP", total))
+    starters = min(max(total // 2, total - max_rp), max_sp)
+    return {"SP": starters, "RP": total - starters}
+
+
+def slot_replacement_levels(
+    df: pd.DataFrame, total_column: str, eligible: pd.Series, columns: list[str], slots: dict[str, float],
+    candidates: pd.Series,
+) -> dict[str, dict[str, float]]:
+    """Position -> levels of the players around the last active slot at that position.
+
+    With ``teams`` teams and ``slots`` active slots per team (not necessarily whole numbers
+    when taken from real lineups), the last active player at a position is ranked
+    ``teams * slots`` by ``total_column``. The level averages the
+    ``REPLACEMENT_POOL`` players centered on that rank, over all candidates (owned or free).
+    """
+    teams = df["team_id"].nunique()
+    levels = {}
+    for position, count in slots.items():
+        members = df[candidates & eligible.map(lambda found: position in found)]
+        ranked = members.sort_values(total_column, ascending=False).index
+        start = round(teams * count) - 1 - REPLACEMENT_POOL // 2
+        window = ranked[max(start, 0):max(start, 0) + REPLACEMENT_POOL]
+        if len(window) == REPLACEMENT_POOL:
+            levels[position] = {column: df.loc[window, column].mean() for column in [total_column, *columns]}
+    return levels
+
+
 def compute_above_replacement(
-    df: pd.DataFrame, player_type: str, total_column: str, category_columns: list[str] = ()
+    df: pd.DataFrame, player_type: str, total_column: str, category_columns: list[str] = (),
+    slots: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """Add ``<column>_above_replacement`` and its ``_rank`` for the total and each category column.
 
     A player is measured at the eligible position with the lowest replacement total,
     i.e. where he adds the most over a free agent, and every category uses that same
-    position's replacement players (see ``replacement_levels``). Players at a position
-    with no free agents, or without a score, get NaN.
+    position's replacement players (see ``replacement_levels``). Every hitter also
+    counts as UT-eligible, and pitchers are starters or relievers by usage
+    (see ``pitcher_roles``). When ``slots`` (positions -> active slots per team) is given,
+    a position's replacement is never lower than the players just outside the league's
+    active slots there (see ``slot_replacement_levels``), whichever is higher: the waiver
+    wire or the depth of the active pool. Only free agents with at least ``MIN_REPLACEMENT_VOLUME``
+    of playing time can set a replacement level, so a few at-bats never define it.
+    Players at a position with no replacement candidates, or without a score, get NaN.
     """
     df = df.copy()
     columns = list(category_columns)
-    eligible = df["positions"].map(lambda value: eligible_positions(value, player_type))
-    levels = replacement_levels(df, total_column, eligible, columns)
+    if player_type == "Pitcher":
+        eligible = pitcher_roles(df)
+    else:
+        eligible = df["positions"].map(lambda value: replacement_positions(value, player_type))
+    candidates = df["team_id"].isna() & df[total_column].notna()
+    playing_time = PLAYING_TIME_COLUMN[player_type]
+    if playing_time in df:
+        candidates &= df[playing_time] >= MIN_REPLACEMENT_VOLUME[player_type]
+    levels = replacement_levels(df, total_column, eligible, columns, candidates)
+    if slots:
+        pool = df[total_column].notna()
+        if playing_time in df:
+            pool &= df[playing_time] >= MIN_REPLACEMENT_VOLUME[player_type]
+        for position, depth in slot_replacement_levels(df, total_column, eligible, columns, slots, pool).items():
+            if position not in levels or depth[total_column] > levels[position][total_column]:
+                levels[position] = depth
 
     def best_position(positions: list[str]) -> str | None:
         options = [p for p in positions if p in levels]
@@ -287,10 +457,14 @@ def save_z_scores(db_path: str | Path) -> None:
             if factors and "team_id" in df:
                 df = compute_sgp(df, categories, columns, factors, playing_time, team_volume(conn, df, player_type))
             if "team_id" in df and "positions" in df:
+                lineups = latest_active_lineups(conn)
+                # Hitters use the waiver wire alone; only pitchers get the depth floor.
+                slots = active_pitcher_slots(lineups) if player_type == "Pitcher" else None
                 for column in (z_column, sgp_column):
                     if column(TOTAL) in df:
                         df = compute_above_replacement(
-                            df, player_type, column(TOTAL), [column(cat) for cat in categories if column(cat) in df]
+                            df, player_type, column(TOTAL), [column(cat) for cat in categories if column(cat) in df],
+                            slots,
                         )
             if "team_id" in df:
                 df["team_id"] = df["team_id"].astype("Int64")  # keep integers despite NULLs
@@ -361,6 +535,8 @@ def _attach_scores(player: models.Player, row: sqlite3.Row, context: _ScoreConte
     """Copy the stored scoring stats, z-scores, SGP and above-replacement values onto ``player``."""
     categories = context.categories
     player.scoring_stats = {cat: scoring_stat(row, cat, context.columns) for cat in categories}
+    rank = row["rank"]
+    player.cbs_rank = int(rank) if rank is not None and rank < UNRANKED else None
     if row[z_column(TOTAL)] is None:
         return
     player.z_scores = {cat: row[z_column(cat)] for cat in categories}
@@ -414,6 +590,52 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
                 matches = same_team or matches
                 if matches:
                     _attach_scores(player, matches[0], context)
+
+
+def load_team_roster(
+    team_id: int, db_path: str | Path | None = None
+) -> tuple[dict | None, dict[str, list[models.Player]]]:
+    """A fantasy team's players in the order of its most recent imported lineup, with scores.
+
+    Returns ``(lineup, players)``. ``lineup`` is ``{"effective_date", "period_id"}`` (the
+    period is None for the offseason) and each player carries the lineup's slot and status.
+    Without a lineup for the team this falls back to ``load_players`` and ``lineup`` is None.
+    """
+    db_path = stats_db_path(db_path)
+    rows = []
+    if db_path.exists():
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM lineups
+                    WHERE team_id = ?
+                      AND effective_date || printf('%06d', IFNULL(period_id, 0)) = (
+                          SELECT MAX(effective_date || printf('%06d', IFNULL(period_id, 0)))
+                          FROM lineups WHERE team_id = ?)
+                    ORDER BY slot_order
+                    """,
+                    (team_id, team_id),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+    if not rows:
+        return None, load_players(team_id, db_path)
+    roster = models.TeamRoster(players=[
+        models.Player(
+            name=row["name"],
+            roster_slot=row["slot"],
+            eligible_positions=[p.strip() for p in row["positions"].split(",") if p.strip()],
+            team=row["mlb_team"],
+            status=row["status"],
+            player_type=row["player_type"],
+        )
+        for row in rows
+    ])
+    evaluate_roster(roster, db_path)
+    players = {player_type: [p for p in roster.players if p.player_type == player_type] for player_type in TABLES}
+    return {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"]}, players
 
 
 def load_players(

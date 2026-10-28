@@ -18,7 +18,7 @@
     {% if teams %}
       <div class="table-wrap">
         <table>
-          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th></tr></thead>
+          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th><th class="num" title="Total SGP vs replacement of the players active in the latest lineup">Active SGP VR</th></tr></thead>
           <tbody>
             {% for team in teams %}
               <tr>
@@ -26,6 +26,7 @@
                 <td><a class="team-link" href="{{ url_for('team', team_id=team.id) }}"><strong>{{ team.name }}</strong></a></td>
                 <td>{{ team.manager }}</td>
                 <td class="num">{{ team.total_points if team.total_points is not none }}</td>
+                <td class="num">{% if team.active_sgp_vr is not none %}<span class="{{ 'pos' if team.active_sgp_vr > 0.005 else ('neg' if team.active_sgp_vr < -0.005 else '') }}">{{ team.active_sgp_vr|signed }}</span>{% endif %}</td>
               </tr>
             {% endfor %}
           </tbody>

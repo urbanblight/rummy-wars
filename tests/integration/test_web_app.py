@@ -49,8 +49,8 @@ class WebAppIntegrationTests(unittest.TestCase):
         """Each team links to its own players page, in the order the data layer returns."""
         snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
         teams = [
-            {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5},
-            {"id": 2, "name": "Jesus Jones", "abbrev": "RH", "manager": "Matt U", "rank": 2, "total_points": 120.0},
+            {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5, "active_sgp_vr": 42.5},
+            {"id": 2, "name": "Jesus Jones", "abbrev": "RH", "manager": "Matt U", "rank": 2, "total_points": 120.0, "active_sgp_vr": None},
         ]
         with patch("app.league.league_teams", return_value=(snapshot, teams)):
             text = self.client.get("/teams").get_data(as_text=True)
@@ -59,6 +59,8 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn('href="/teams/2"', text)
         self.assertLess(text.index("The Outfield"), text.index("Jesus Jones"))
         self.assertIn("2026 standings", text)
+        self.assertIn("Active SGP VR", text)
+        self.assertIn("+42.50", text)
 
     def test_team_page_lists_the_teams_players_with_the_advanced_modal(self):
         """A team page shows its batters and pitchers using the shared player table."""
@@ -66,23 +68,44 @@ class WebAppIntegrationTests(unittest.TestCase):
         snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
         batter = models.Player(
             name="Test Batter", roster_slot="", eligible_positions=["C"], team="HOU", status="", player_type="Batter",
-            scoring_stats={"HR": 20.0, "BA": 0.275},
+            scoring_stats={"HR": 20.0, "BA": 0.275}, cbs_rank=42,
             z_scores={"HR": 1.0}, z_ranks={"HR": 3}, z_total=1.0, z_total_rank=3,
             sgp_above_replacement={"total": (2.5, 9), "HR": (1.0, 4)},
         )
         with patch("app.league.get_team", return_value=team), \
                 patch("app.league.league_teams", return_value=(snapshot, [team])), \
-                patch("app.zscores.load_players", return_value={"Batter": [batter], "Pitcher": []}):
+                patch("app.zscores.load_team_roster", return_value=(None, {"Batter": [batter], "Pitcher": []})):
             text = self.client.get("/teams/7").get_data(as_text=True)
 
         self.assertIn("The Outfield", text)
         self.assertIn("Test Batter", text)
         self.assertIn("Batters (1)", text)
         self.assertIn("+2.50", text)
+        self.assertIn('<th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>', text)
+        self.assertIn('<td class="num">42</td>', text)
         self.assertIn("BA&nbsp;.275", text)
         self.assertIn('id="adv-modal"', text)
         self.assertNotIn("<th>Slot</th>", text)
         self.assertNotIn("<th>Status</th>", text)
+
+    def test_team_page_shows_the_lineup_slot_status_and_date_when_a_lineup_exists(self):
+        """With a lineup the team page lists the slot and status columns and says when it is from."""
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        starter = models.Player(
+            name="Lineup Starter", roster_slot="DH", eligible_positions=["1B"], team="TB", status="Active", player_type="Batter",
+        )
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.zscores.load_team_roster", return_value=(
+                    {"effective_date": "2026-09-28", "period_id": 12}, {"Batter": [starter], "Pitcher": []})):
+            text = self.client.get("/teams/7").get_data(as_text=True)
+
+        self.assertIn("Lineup as of 2026-09-28 (period 12)", text)
+        self.assertIn("<th>Slot</th>", text)
+        self.assertIn("<th>Status</th>", text)
+        self.assertIn(">DH</td>", text)
+        self.assertIn("Lineup Starter", text)
 
     def test_unknown_team_returns_404(self):
         with patch("app.league.get_team", return_value=None):

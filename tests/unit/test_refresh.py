@@ -33,3 +33,25 @@ def test_save_factors_replaces_stored_factors(tmp_path):
     assert calculate_sgp.save_factors(db) == 1
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT category, factor FROM sgp_factors").fetchall() == [("HR", 10.0)]
+
+
+def test_import_lineup_files_imports_the_folder_and_handles_none(tmp_path):
+    import import_lineups
+
+    db = tmp_path / "t.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("INSERT INTO teams VALUES (7, 'The Outfield')")
+
+    assert refresh.import_lineup_files(tmp_path, db) == 0  # no lineups folder
+
+    folder = tmp_path / "lineups"
+    folder.mkdir()
+    (folder / "roster-overview-7-20260928.csv").write_text(
+        'Batters\n,Pos,Players\n,C,"Liam Hicks C,1B | TB ",x,452,102,94%,77%\n'
+    )
+    (folder / "notes.csv").write_text("")
+
+    assert refresh.import_lineup_files(tmp_path, db) == 1
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT name, slot FROM lineups").fetchall() == [("Liam Hicks", "C")]

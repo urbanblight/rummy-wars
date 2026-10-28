@@ -25,7 +25,10 @@ python scripts/refresh.py [--year 2026] [--data-dir data] [--db data/stats.db]
 
 1. `import_teams.py` loads teams and managers from `data/teams.csv`.
 2. `import_standings.py` loads every `data/standings/<year>.csv` as that season's full-year snapshot. Re-importing replaces the snapshot.
-3. `import_cbs_stats.py` loads the player stats for `--year`. It first recalculates the SGP factors (`calculate_sgp.py`) from the imported standings, then stores the Z-scores, SGP, above-replacement values and ranks.
+3. `import_lineups.py` loads every roster-overview file in `data/lineups` (skipped if there are none).
+4. `import_cbs_stats.py` loads the player stats for `--year`. It first recalculates the SGP factors (`calculate_sgp.py`) from the imported standings, then stores the Z-scores, SGP, above-replacement values and ranks.
+
+Lineups can also be imported on their own with `python scripts/import_lineups.py [path ...]` (default `data/lineups`). The CBS roster-overview files must be named `roster-overview-<team-id>-<date>.csv` for the offseason lineup, or `roster-overview-<team-id>-<period-id>-<date>.csv` in season, with the date as `YYYYMMDD`. Each player becomes a row of the `lineups` table (team, period, effective date, status, slot, name, positions, MLB team, CBS ranks and roster/start percentages), and re-importing a lineup replaces it. Import teams first.
 
 Each script can also be run on its own, for example `import_standings.py data/standings/2026.csv --as-of 2026-06-01` for an in-season standings snapshot (`refresh.py` only imports full-year files).
 
@@ -39,5 +42,6 @@ Each script can also be run on its own, for example `import_standings.py data/st
 - `.env` settings:
   - `BATTING_SCORING_CATEGORIES` and `PITCHING_SCORING_CATEGORIES`, using the standings category names (`HR,R,SB,BA,OBP,SLG,RBI` and `W+QS,S,ERA,WHIP,Kd9,HD,INN`).
   - `BATTING_ACTIVE_SLOTS` and `PITCHING_ACTIVE_SLOTS`, the lineup size used to estimate a typical team's playing time (default 10).
+  - `MAX_ACTIVE_SP` and `MAX_ACTIVE_RP`, the most pitcher slots a team can give to starters or relievers. Pitcher slots are taken from the imported lineups when available, otherwise split evenly within these limits. A pitcher role's replacement level is never lower than the players just outside the league's active slots for that role.
 
 Without any imported standings the stats import still runs, but it warns and leaves the SGP factors unchanged.

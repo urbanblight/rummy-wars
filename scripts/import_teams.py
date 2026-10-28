@@ -4,7 +4,8 @@ Usage:
     python scripts/import_teams.py [--csv data/teams.csv] [--db data/stats.db]
 
 Upserts the ``managers`` (matched by name, case-insensitively) and ``teams``
-tables. Each team gets an integer ``id`` (1, 2, 3... in file order) and points
+tables. Each team gets an integer ``id`` (1, 2, 4, 5... in file order, matching the
+team ids CBS uses, which skip 3) and points
 at its manager through ``manager_id``. Existing rows are updated in place, so
 ``teams_history`` is preserved. Run this before ``import_cbs_stats.py``, which
 stores these ids in the batting and pitching tables.
@@ -29,6 +30,15 @@ COLUMNS = {
 }
 
 
+# CBS has no team 3, so ids after the second team are one higher than the file position.
+CBS_SKIPPED_TEAM_ID = 3
+
+
+def cbs_team_id(position: int) -> int:
+    """Team id for the team at a 1-based position in the teams file."""
+    return position if position < CBS_SKIPPED_TEAM_ID else position + 1
+
+
 def normalize_team_name(name: str) -> str:
     """Name used to match teams across files (CBS exports backslash-escape quotes)."""
     return name.replace("\\", "").strip().casefold()
@@ -39,7 +49,7 @@ def load_teams(csv_path: Path) -> pd.DataFrame:
     df = df[list(COLUMNS)].rename(columns=COLUMNS)
     df = df[df["name"].notna()].copy()
     df = df.apply(lambda col: col.str.strip())
-    df.insert(0, "id", range(1, len(df) + 1))
+    df.insert(0, "id", [cbs_team_id(position) for position in range(1, len(df) + 1)])
     return df.reset_index(drop=True)
 
 

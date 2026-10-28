@@ -5,10 +5,36 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pandas as pd
+
 try:
     from . import zscores
 except ImportError:  # pragma: no cover - supports direct module imports
     import zscores
+
+
+def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
+    """Team id -> total SGP vs replacement of the players active in the team's latest lineup.
+
+    Players are matched to the batting and pitching tables by fantasy team and name; an
+    active player without a score adds nothing. Teams without an imported lineup are absent.
+    """
+    lineups = zscores.latest_active_lineups(conn)
+    if lineups is None:
+        return {}
+    totals = pd.Series(0.0, index=pd.Index(lineups["team_id"].unique(), name="team_id"))
+    for player_type, (table, _columns) in zscores.TABLES.items():
+        try:
+            scores = pd.read_sql_query(
+                f"SELECT team_id, norm_name, sgp_total_above_replacement AS vr FROM {table} WHERE team_id IS NOT NULL",  # noqa: S608
+                conn,
+            )
+        except (sqlite3.OperationalError, pd.errors.DatabaseError):
+            continue
+        active = lineups[lineups["player_type"] == player_type][["team_id", "norm_name"]]
+        matched = active.astype({"team_id": "Int64"}).merge(scores.astype({"team_id": "Int64"}), on=["team_id", "norm_name"])
+        totals = totals.add(matched.groupby("team_id")["vr"].sum(), fill_value=0.0)
+    return {int(team_id): float(total) for team_id, total in totals.items()}
 
 
 def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[dict]]:
@@ -16,8 +42,9 @@ def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[d
 
     Returns ``(snapshot, teams)``. ``snapshot`` is ``{"season_year", "as_of_date"}`` for the
     latest imported standings, or None if there are none. Each team has ``id``, ``name``,
-    ``abbrev``, ``manager``, ``rank`` and ``total_points`` (rank and points are None for a
-    team missing from the snapshot, which is listed last). Returns ``(None, [])`` if the
+    ``abbrev``, ``manager``, ``rank``, ``total_points`` (rank and points are None for a
+    team missing from the snapshot, which is listed last) and ``active_sgp_vr`` (see
+    ``active_sgp_vr``; None for a team without a lineup). Returns ``(None, [])`` if the
     database or its teams table is missing.
     """
     db_path = zscores.stats_db_path(db_path)
@@ -50,7 +77,8 @@ def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[d
             ).fetchall()
         except sqlite3.OperationalError:
             return snapshot, []
-    return snapshot, [dict(row) for row in rows]
+        active = active_sgp_vr(conn)
+    return snapshot, [dict(row, active_sgp_vr=active.get(row["id"])) for row in rows]
 
 
 def get_team(team_id: int, db_path: str | Path | None = None) -> dict | None:

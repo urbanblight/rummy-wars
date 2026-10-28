@@ -18,13 +18,16 @@
 
     <section class="roster-section" aria-labelledby="roster-title">
       <h2 id="roster-title">Players</h2>
+      {% if lineup %}
+        <p class="muted">Lineup as of {{ lineup.effective_date }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>
+      {% endif %}
       <section aria-labelledby="batters-title">
         <h3 id="batters-title">Batters ({{ batters|length }})</h3>
-        {{ player_table(batters, show_roster=False) }}
+        {{ player_table(batters, show_roster=lineup is not none) }}
       </section>
       <section aria-labelledby="pitchers-title">
         <h3 id="pitchers-title">Pitchers ({{ pitchers|length }})</h3>
-        {{ player_table(pitchers, show_roster=False) }}
+        {{ player_table(pitchers, show_roster=lineup is not none) }}
       </section>
     </section>
   </main>
