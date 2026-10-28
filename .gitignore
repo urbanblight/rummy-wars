@@ -439,9 +439,7 @@ FodyWeavers.xsd
 # Python virtual environment
 .venv/
 pytest.ini
-data/2026/stats-batting.csv
-.gitignore
-data/stats.db
-data/teams.csv
-.gitignore
-data/2026/stats-pitching.csv
+
+# Files generated or used by the application in future development
+data/*
+data/**/*.csv
