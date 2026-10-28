@@ -9,6 +9,9 @@ Reads ``<data-dir>/<year>/stats-batting.csv`` and ``stats-pitching.csv`` and
 free agents), including
 z-score and z-score rank columns for the league scoring categories (see
 ``zscores.save_z_scores``). Re-run after changing the scoring categories.
+
+The SGP factors are recalculated from the imported standings first (see
+``calculate_sgp.py``), so the SGP columns always use the latest standings.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ PLAYER_PATTERN = re.compile(r"^(.*?)\s+([A-Za-z0-9,]+)\s*\|\s*([A-Z]{2,3})$")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+import calculate_sgp  # noqa: E402
 import zscores  # noqa: E402
 from import_teams import normalize_team_name  # noqa: E402
 from zscores import normalize_name  # noqa: E402
@@ -79,6 +83,10 @@ def import_stats(year: str, data_dir: Path, db_path: Path) -> dict[str, int]:
     with sqlite3.connect(db_path) as conn:
         batting.to_sql("batting", conn, if_exists="replace", index=False)
         pitching.to_sql("pitching", conn, if_exists="replace", index=False)
+    try:
+        calculate_sgp.save_factors(db_path)
+    except (ValueError, sqlite3.Error) as error:
+        print(f"Warning: SGP factors not updated ({error})", file=sys.stderr)
     zscores.save_z_scores(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.execute("CREATE INDEX idx_batting_name ON batting (norm_name)")

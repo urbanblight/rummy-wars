@@ -19,19 +19,22 @@ app = Flask(__name__)
 
 @app.template_filter("stat_value")
 def format_stat_value(value: float | None, key: str) -> str:
-    """Format a Player stat for display, e.g. BA as ".275" and ERA/WHIP to 2 decimals."""
+    """Format a scoring stat for display, e.g. BA as ".275", ERA/WHIP/Kd9 to 2 decimals, INN to 1."""
     if value is None:
         return "-"
-    if key == "BA":
+    if key in ("BA", "OBP", "SLG"):
         return f"{value:.3f}".removeprefix("0")
-    if key in ("ERA", "WHIP"):
+    if key in ("ERA", "WHIP", "Kd9"):
         return f"{value:.2f}"
-    return str(value)
+    if key == "INN":
+        return f"{value:.1f}"
+    return str(int(value)) if float(value).is_integer() else str(value)
 
 
-@app.template_filter("z_format")
-def format_z(value: float) -> str:
-    return f"{value:+.2f}"
+@app.template_filter("signed")
+def format_signed(value: float) -> str:
+    """Two decimals with an explicit sign, using a true minus."""
+    return f"{value:+.2f}".replace("-", "\u2212")
 
 
 load_dotenv(dotenv_path='.env', override=False)
@@ -65,11 +68,6 @@ def evaluate_upload(file_storage):
 def index():
     offseason = MODE == "offseason"
     return render_template("index.html", offseason=offseason)
-
-
-@app.get("/teams")
-def teams():
-    return render_template("teams.html", teams=zscores.team_totals())
 
 
 @app.post("/evaluate")

@@ -5,15 +5,18 @@
 {% macro player_table(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th></th><th>Slot</th><th>Type</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">Rank</th><th class="num">SGP VR</th><th></th><th>Slot</th><th>Team</th><th>Status</th><th>Stats</th></tr></thead>
       <tbody>
         {% for player in players %}
           <tr>
             <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
-            <td>{% if player.z_total is not none %}<button type="button" class="z-icon" aria-label="Z-scores for {{ player.name }}" data-name="{{ player.name }}" data-z='{{ player.z_payload()|tojson }}'>📈</button>{% endif %}</td>
-            <td>{{ player.roster_slot }}</td><td>{{ player.player_type }}</td><td>{{ player.team }}</td>
+            {% set vr = player.sgp_above_replacement.get('total') %}
+            <td class="num">{% if vr %}{{ vr[1] }}{% endif %}</td>
+            <td class="num">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
+            <td>{% if player.z_total is not none %}<button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %}</td>
+            <td>{{ player.roster_slot }}</td><td>{{ player.team }}</td>
             <td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>
-            <td class="stats">{% for key, value in player.stats.items() %}{{ key }} {{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
+            <td class="stats">{% for key, value in player.scoring_stats.items() %}{{ key }}&nbsp;{{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -86,17 +89,33 @@
     </section>
   </main>
 
-  <dialog id="z-modal" class="z-modal" aria-labelledby="z-modal-title">
-    <div class="z-board">
-      <header class="z-board-head">
+  <dialog id="adv-modal" class="adv-modal" aria-labelledby="adv-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
         <div>
-          <p class="panel-kicker">LEAGUE Z-SCORES</p>
-          <h2 id="z-modal-title"></h2>
+          <p class="panel-kicker">ADVANCED STATS</p>
+          <h2 id="adv-modal-title"></h2>
         </div>
-        <button type="button" class="z-close" aria-label="Close">&times;</button>
+        <div class="adv-head-actions">
+          <span class="adv-info">
+            <button type="button" class="adv-info-icon" aria-label="What are Z and SGP?" aria-describedby="adv-info-tip">i</button>
+            <dl class="adv-info-tip" id="adv-info-tip" role="tooltip">
+              <dt>Z</dt>
+              <dd>Standard deviations above (+) or below (&minus;) the average of the top 500 players in that category. Every category counts equally, and the total is the average across categories.</dd>
+              <dt>SGP</dt>
+              <dd>Standings points the player is worth in that category, based on how much of the stat it has taken to gain a point in past seasons. Rate stats are scaled by playing time.</dd>
+              <dt>#</dt>
+              <dd>Rank among all players in the pool, 1 being best.</dd>
+              <dt>VR</dt>
+              <dd>Versus replacement: the Z or SGP minus the average of the 5 best free agents at the player's position for that stat (his lowest-replacement eligible position if he has several).</dd>
+            </dl>
+          </span>
+          <button type="button" class="adv-close" aria-label="Close" autofocus>&times;</button>
+        </div>
       </header>
-      <div class="z-total"><span>TOTAL</span><div class="z-total-value" id="z-modal-total"></div></div>
-      <div class="z-cells" id="z-modal-cells"></div>
+      <div class="adv-cols" aria-hidden="true"><span></span><span>Z</span><span>SGP</span><span>Z VR</span><span>SGP VR</span></div>
+      <div class="adv-total"><span>TOTAL</span><div class="adv-metrics" id="adv-modal-total"></div></div>
+      <div class="adv-cells" id="adv-modal-cells"></div>
     </div>
   </dialog>
 {% endblock %}
@@ -104,38 +123,56 @@
 {% block scripts %}
 <script>
   (function () {
-    var modal = document.getElementById('z-modal');
+    var modal = document.getElementById('adv-modal');
     function fmt(v) { return (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(2); }
     function cls(v) { return v > 0.005 ? 'pos' : (v < -0.005 ? 'neg' : ''); }
-    function fill(el, z, rank) {
-      var value = document.createElement('strong');
-      value.textContent = fmt(z);
-      value.className = cls(z);
+    function metric(parent, value, rank, divider) {
+      var box = document.createElement('div');
+      box.className = divider ? 'adv-metric adv-metric-divider' : 'adv-metric';
+      var valueEl = document.createElement('strong');
       var rankEl = document.createElement('small');
-      rankEl.textContent = 'RANK #' + rank;
-      el.append(value, rankEl);
+      if (value === null || value === undefined) {
+        valueEl.textContent = '\u2014';
+      } else {
+        valueEl.textContent = fmt(value);
+        valueEl.className = cls(value);
+        rankEl.textContent = '#' + rank;
+      }
+      box.append(valueEl, rankEl);
+      parent.append(box);
+    }
+    function fill(el, row) {
+      metric(el, row.z, row.z_rank, false);
+      metric(el, row.sgp, row.sgp_rank, false);
+      metric(el, row.z_repl, row.z_repl_rank, true);
+      metric(el, row.sgp_repl, row.sgp_repl_rank, false);
     }
     document.addEventListener('click', function (e) {
-      var btn = e.target.closest('.z-icon');
+      var btn = e.target.closest('.adv-icon');
       if (btn) {
-        var data = JSON.parse(btn.dataset.z);
-        document.getElementById('z-modal-title').textContent = btn.dataset.name;
-        var totalEl = document.getElementById('z-modal-total');
+        var data = JSON.parse(btn.dataset.advanced);
+        document.getElementById('adv-modal-title').textContent = btn.dataset.name;
+        var totalEl = document.getElementById('adv-modal-total');
         totalEl.textContent = '';
-        fill(totalEl, data.total.z, data.total.rank);
-        var cells = document.getElementById('z-modal-cells');
+        fill(totalEl, data.total);
+        var cells = document.getElementById('adv-modal-cells');
         cells.textContent = '';
         data.cats.forEach(function (c) {
           var cell = document.createElement('div');
-          cell.className = 'z-cell';
+          cell.className = 'adv-cell';
           var label = document.createElement('span');
           label.textContent = c.cat;
-          cell.append(label);
-          fill(cell, c.z, c.rank);
+          var metrics = document.createElement('div');
+          metrics.className = 'adv-metrics';
+          fill(metrics, c);
+          cell.append(label, metrics);
           cells.append(cell);
         });
+        document.querySelector('.adv-info').classList.remove('open');
         modal.showModal();
-      } else if (e.target === modal || e.target.closest('.z-close')) {
+      } else if (e.target.closest('.adv-info-icon')) {
+        e.target.closest('.adv-info').classList.toggle('open');
+      } else if (e.target === modal || e.target.closest('.adv-close')) {
         modal.close();
       }
     });

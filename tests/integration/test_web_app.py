@@ -38,18 +38,10 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn(b'<span class="ball">', response.data)
         self.assertNotIn(b'class="stovetop"', response.data)
 
-    def test_teams_page_renders_team_totals(self):
-        """The teams page should list each team's total z-score."""
-        teams = [{
-            "id": 1, "name": "Ween", "abbrev": "DAISIES", "manager": "M",
-            "batting_z": 10.0, "batters": 12, "pitching_z": -2.5, "pitchers": 9, "total_z": 7.5,
-        }]
-        with patch("zscores.team_totals", return_value=teams):
-            response = self.client.get("/teams")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Ween", response.data)
-        self.assertIn(b"+7.50", response.data)
+    def test_teams_route_is_removed(self):
+        """The team totals page no longer exists."""
+        self.assertEqual(self.client.get("/teams").status_code, 404)
+        self.assertNotIn("/teams", self.client.get("/").get_data(as_text=True))
 
     @patch("app.MODE", "offseason")
     def test_offseason_loading_screen_uses_coffee_and_stovetop(self):
@@ -64,6 +56,16 @@ class WebAppIntegrationTests(unittest.TestCase):
     def test_stat_value_filter_formats_missing_stats_as_placeholder(self):
         """Missing stat values should render as a dash in templates."""
         self.assertEqual(app.jinja_env.filters["stat_value"](None, "BA"), "-")
+
+    def test_stat_value_filter_formats_each_scoring_stat(self):
+        """Rate stats, innings and counting stats each get their usual format."""
+        fmt = app.jinja_env.filters["stat_value"]
+        self.assertEqual(fmt(0.2719, "BA"), ".272")
+        self.assertEqual(fmt(0.4, "SLG"), ".400")
+        self.assertEqual(fmt(3.456, "ERA"), "3.46")
+        self.assertEqual(fmt(9.0, "Kd9"), "9.00")
+        self.assertEqual(fmt(174.6666, "INN"), "174.7")
+        self.assertEqual(fmt(31.0, "HR"), "31")
 
     def test_missing_upload_redirects_with_error(self):
         """A request without a file should return a flashed validation error."""
@@ -148,6 +150,36 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn("Jake Bennett", pitchers_section)
         self.assertNotIn("Yainer Diaz", pitchers_section)
         _validate_rules.assert_called_once()
+
+    @patch("app.utils.validate_league_rules", return_value=([], []))
+    def test_results_page_shows_advanced_stats_modal(self, _validate_rules):
+        """Players with scores get an advanced stats button carrying z-score and SGP data."""
+        def attach_scores(roster):
+            player = roster.players[0]
+            player.z_scores, player.z_ranks, player.z_total, player.z_total_rank = {"HR": 1.5}, {"HR": 4}, 1.5, 4
+            player.sgp, player.sgp_ranks, player.sgp_total, player.sgp_total_rank = {"HR": 2.0}, {"HR": 3}, 2.0, 3
+            player.z_above_replacement = {"total": (0.5, 7), "HR": (0.5, 7)}
+            player.sgp_above_replacement = {"total": (1.0, 6), "HR": (1.0, 6)}
+
+        with patch("app.zscores.evaluate_roster", side_effect=attach_scores):
+            with self.sample_csv.open("rb") as csv_file:
+                response = self.client.post(
+                    "/evaluate",
+                    data={"roster": (csv_file, self.sample_csv.name)},
+                    content_type="multipart/form-data",
+                )
+
+        text = response.get_data(as_text=True)
+        self.assertIn("ADVANCED STATS", text)
+        self.assertIn('id="adv-modal"', text)
+        self.assertIn("Advanced stats for", text)
+        self.assertIn('"sgp": 2.0', text)
+        self.assertNotIn("LEAGUE Z-SCORES", text)
+        self.assertIn('class="adv-info-tip"', text)
+        self.assertIn('"z_repl": 0.5', text)
+        self.assertIn("<th class=\"num\">SGP VR</th>", text)
+        self.assertIn("+1.00", text)
+        self.assertNotIn("adv-legend", text)
 
     @patch("app.utils.validate_league_rules", return_value=([], ["Review player eligibility"]))
     def test_csv_upload_renders_warnings(self, _validate_rules):

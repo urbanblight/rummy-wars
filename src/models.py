@@ -24,17 +24,39 @@ class Player:
     status: str             # 'Active', 'Reserves', 'Injured', 'Minors'
     player_type: str        # 'Batter' or 'Pitcher'
     stats: dict[str, float | None] = field(default_factory=dict)
+    # Season values for the league's scoring categories, from the stats database.
+    scoring_stats: dict[str, float | None] = field(default_factory=dict)
     z_scores: dict[str, float] = field(default_factory=dict)
     z_ranks: dict[str, int] = field(default_factory=dict)
     z_total: float | None = None
     z_total_rank: int | None = None
+    sgp: dict[str, float] = field(default_factory=dict)
+    sgp_ranks: dict[str, int] = field(default_factory=dict)
+    sgp_total: float | None = None
+    sgp_total_rank: int | None = None
+    # {"total" or category: (value, rank)} for the player's best eligible position, or None.
+    z_above_replacement: dict[str, tuple[float, int] | None] = field(default_factory=dict)
+    sgp_above_replacement: dict[str, tuple[float, int] | None] = field(default_factory=dict)
 
-    def z_payload(self) -> dict:
-        """Z-score data in league category order, for the results-page modal."""
+    def advanced_payload(self) -> dict:
+        """Z-score, SGP and above-replacement data in league category order, for the results-page modal."""
+
+        def repl(values: dict, key: str) -> tuple[float | None, int | None]:
+            return values.get(key) or (None, None)
+
+        def entry(key: str, z, z_rank, sgp, sgp_rank) -> dict:
+            z_repl, z_repl_rank = repl(self.z_above_replacement, key)
+            sgp_repl, sgp_repl_rank = repl(self.sgp_above_replacement, key)
+            return {
+                "z": z, "z_rank": z_rank, "sgp": sgp, "sgp_rank": sgp_rank,
+                "z_repl": z_repl, "z_repl_rank": z_repl_rank,
+                "sgp_repl": sgp_repl, "sgp_repl_rank": sgp_repl_rank,
+            }
+
         return {
-            "total": {"z": self.z_total, "rank": self.z_total_rank},
+            "total": entry("total", self.z_total, self.z_total_rank, self.sgp_total, self.sgp_total_rank),
             "cats": [
-                {"cat": cat, "z": z, "rank": self.z_ranks.get(cat)}
+                {"cat": cat, **entry(cat, z, self.z_ranks.get(cat), self.sgp.get(cat), self.sgp_ranks.get(cat))}
                 for cat, z in self.z_scores.items()
             ],
         }
