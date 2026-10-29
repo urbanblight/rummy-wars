@@ -27,6 +27,28 @@ class WebAppIntegrationTests(unittest.TestCase):
             Path(__file__).parents[2] / "tests/fixtures/cbs-roster-export.csv"
         )
 
+    @patch("app.requests.get")
+    def test_news_endpoint_queries_google_news_rss(self, get):
+        """The news route should build the RSS query and return parsed items."""
+        get.return_value.content = (
+            b"<rss><channel><item><title>T</title><link>https://x.test/a</link>"
+            b"<source>S</source><pubDate>D</pubDate></item>"
+            b"<item><title>Bad</title><link>javascript:alert(1)</link></item>"
+            b"</channel></rss>"
+        )
+
+        response = self.client.get("/news?name=Aaron+Judge")
+
+        self.assertEqual(response.get_json(), [
+            {"title": "T", "link": "https://x.test/a", "source": "S", "published": "D"}
+        ])
+        url = get.call_args.args[0]
+        self.assertTrue(url.startswith("https://news.google.com/rss/search?q="))
+        self.assertIn("Aaron+Judge", url)
+        self.assertIn("when%3A7d", url)
+        self.assertTrue(url.endswith("&hl=en-US&gl=US&ceid=US:en"))
+        self.assertEqual(self.client.get("/news").status_code, 400)
+
     @patch("app.MODE", "inseason")
     def test_home_page_contains_upload_and_loading_state(self):
         """The home page should expose upload controls and loading markup."""

@@ -2,17 +2,16 @@
 {% macro player_table(players, show_roster=True, notices=none) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th><th></th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats</th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats</th></tr></thead>
       <tbody>
         {% for player in players %}
           <tr>
             {% set found = notices.get(player.name) if notices else none %}
-            <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}</small></td>
+            <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             <td class="num">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
             <td class="num">{% if vr %}{{ vr[1] }}{% endif %}</td>
             <td class="num">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
-            <td>{% if player.z_total is not none %}<button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %}</td>
             {% if show_roster %}<td>{{ player.roster_slot }}</td>{% endif %}<td>{{ player.team }}</td>
             <td class="stats">{% for key, value in player.scoring_stats.items() %}{{ key }}&nbsp;{{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
           </tr>
@@ -116,6 +115,72 @@
       } else if (e.target.closest('.adv-info-icon')) {
         e.target.closest('.adv-info').classList.toggle('open');
       } else if (e.target === modal || e.target.closest('.adv-close')) {
+        modal.close();
+      }
+    });
+  })();
+</script>
+{% endmacro %}
+
+{% macro news_modal() %}
+  <dialog id="news-modal" class="adv-modal" aria-labelledby="news-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">NEWS · LAST 7 DAYS</p>
+          <h2 id="news-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close news-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="news-modal-list" aria-live="polite"></div>
+    </div>
+  </dialog>
+{% endmacro %}
+
+{% macro news_modal_script() %}
+<script>
+  (function () {
+    var modal = document.getElementById('news-modal');
+    var list = document.getElementById('news-modal-list');
+    var latest = 0;
+    function message(text) {
+      var p = document.createElement('p');
+      p.textContent = text;
+      list.textContent = '';
+      list.append(p);
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.news-icon');
+      if (btn) {
+        var request = ++latest;
+        document.getElementById('news-modal-title').textContent = btn.dataset.name;
+        message('Loading\u2026');
+        modal.showModal();
+        fetch('{{ url_for("player_news") }}?name=' + encodeURIComponent(btn.dataset.name))
+          .then(function (r) { if (!r.ok) { throw new Error(); } return r.json(); })
+          .then(function (items) {
+            if (request !== latest) { return; }
+            if (!items.length) { message('No recent news found.'); return; }
+            list.textContent = '';
+            items.forEach(function (item) {
+              var p = document.createElement('p');
+              var a = document.createElement('a');
+              a.textContent = item.title;
+              a.href = item.link;
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              p.append(a);
+              var meta = [item.source, item.published].filter(Boolean).join(' \u00b7 ');
+              if (meta) {
+                var small = document.createElement('small');
+                small.textContent = ' ' + meta;
+                p.append(small);
+              }
+              list.append(p);
+            });
+          })
+          .catch(function () { if (request === latest) { message('Could not load news.'); } });
+      } else if (e.target === modal || e.target.closest('.news-close')) {
         modal.close();
       }
     });

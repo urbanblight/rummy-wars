@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script %}
+{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script, news_modal, news_modal_script %}
 {% from "_loading.html" import loading_screen %}
 
 {% block title %}RUMMY WARS {{ team.name }}{% endblock %}
@@ -78,11 +78,13 @@
   </main>
 
   {{ advanced_modal() }}
+  {{ news_modal() }}
   {% if lineup %}{{ loading_screen(offseason, "this team's latest lineup") }}{% endif %}
 {% endblock %}
 
 {% block scripts %}
 {{ advanced_modal_script() }}
+{{ news_modal_script() }}
 {% if lineup %}
 <script>
   document.querySelector('#evaluate-form').addEventListener('submit', function (event) {

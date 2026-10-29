@@ -4,9 +4,13 @@ import datetime
 import logging
 import os
 import tempfile
+from email.utils import parsedate_to_datetime
+from urllib.parse import urlencode
+from xml.etree import ElementTree
 
+import requests
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 try:
     from . import league, utils, zscores
@@ -77,6 +81,51 @@ def evaluate_upload(file_storage):
         violations, warnings = utils.validate_league_rules(roster)
     zscores.evaluate_roster(roster)
     return roster, violations, warnings
+
+
+NEWS_RSS_URL = "https://news.google.com/rss/search"
+NEWS_LIMIT = 10
+
+
+def _published_at(value: str) -> datetime.datetime:
+    """Parse an RSS pubDate; unparseable dates sort last."""
+    try:
+        return parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
+def fetch_player_news(name: str) -> list[dict]:
+    """Return recent Google News items for a player."""
+    query = f'"{name}" MLB -"player prop" when:7d'
+    url = f"{NEWS_RSS_URL}?{urlencode({'q': query})}&hl=en-US&gl=US&ceid=US:en"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    items = []
+    for item in ElementTree.fromstring(response.content).iter("item"):
+        link = (item.findtext("link") or "").strip()
+        if not link.startswith(("http://", "https://")):
+            continue
+        items.append({
+            "title": (item.findtext("title") or "").strip(),
+            "link": link,
+            "source": (item.findtext("source") or "").strip(),
+            "published": (item.findtext("pubDate") or "").strip(),
+        })
+    items.sort(key=lambda entry: _published_at(entry["published"]), reverse=True)
+    return items[:NEWS_LIMIT]
+
+
+@app.get("/news")
+def player_news():
+    name = request.args.get("name", "").strip()
+    if not name or len(name) > 100:
+        abort(400)
+    try:
+        return jsonify(fetch_player_news(name))
+    except (requests.RequestException, ElementTree.ParseError):
+        LOGGER.exception("News lookup failed for %s", name)
+        return jsonify({"error": "News is unavailable"}), 502
 
 
 @app.get("/")

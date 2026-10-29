@@ -744,6 +744,7 @@ td small {
 }
 
 .adv-icon,
+.news-icon,
 .note-icon {
   padding: 2px 6px;
   background: transparent;
@@ -755,6 +756,8 @@ td small {
 
 .adv-icon:hover,
 .adv-icon:focus-visible,
+.news-icon:hover,
+.news-icon:focus-visible,
 .note-icon:hover,
 .note-icon:focus-visible {
   background: var(--panel-dark);
@@ -1098,4 +1101,21 @@ td.num .neg {
 #note-modal-list .violation,
 #note-modal-list .warning {
   margin: 12px 0 0;
+}
+
+#news-modal-list a {
+  color: var(--ink);
+}
+
+#news-modal-list a:visited {
+  color: var(--navy);
+}
+
+#news-modal-list a:hover,
+#news-modal-list a:focus-visible {
+  color: var(--accent);
+}
+
+#news-modal-list small {
+  color: var(--navy);
 }
