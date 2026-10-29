@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app, notices_by_player
+from app import FREE_AGENT_PAGE_SIZE, app, notices_by_player
 import models
 
 
@@ -66,6 +66,35 @@ class WebAppIntegrationTests(unittest.TestCase):
         text = self.client.get("/").get_data(as_text=True)
         self.assertIn('href="/teams"', text)
         self.assertLess(text.index("Constitution"), text.index('href="/teams"'))
+
+    def test_home_page_links_to_free_agents(self):
+        self.assertIn('href="/free-agents"', self.client.get("/").get_data(as_text=True))
+
+    @patch("zscores.load_free_agents")
+    def test_free_agents_page_loads_one_page_and_more_on_demand(self, load):
+        load.return_value = []
+        response = self.client.get("/free-agents?type=pitchers")
+        self.assertEqual(response.status_code, 200)
+        load.assert_called_once_with("Pitcher", 0, FREE_AGENT_PAGE_SIZE + 1, position=None)
+        self.assertIn("No free agents found.", response.get_data(as_text=True))
+
+        rows = self.client.get("/free-agents/rows?type=batters&offset=50")
+        self.assertEqual(rows.status_code, 200)
+        self.assertEqual(rows.headers["X-Has-More"], "0")
+        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None)
+
+    @patch("zscores.load_free_agents")
+    def test_free_agents_filter_by_position(self, load):
+        load.return_value = []
+        self.client.get("/free-agents?type=batters&position=SS")
+        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position="SS")
+        self.client.get("/free-agents/rows?type=pitchers&position=RP&offset=50")
+        load.assert_called_with("Pitcher", 50, FREE_AGENT_PAGE_SIZE + 1, position="RP")
+        self.assertEqual(self.client.get("/free-agents?type=pitchers&position=SS").status_code, 404)
+
+    def test_free_agents_rejects_unknown_type_and_negative_offset(self):
+        self.assertEqual(self.client.get("/free-agents?type=coaches").status_code, 404)
+        self.assertEqual(self.client.get("/free-agents/rows?type=batters&offset=-1").status_code, 404)
 
     def test_teams_page_lists_teams_in_standings_order_with_links(self):
         """Each team links to its own players page, in the order the data layer returns."""

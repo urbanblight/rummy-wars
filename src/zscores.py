@@ -443,30 +443,46 @@ def compute_above_replacement(
     return df
 
 
+def score_frame(
+    conn: sqlite3.Connection, df: pd.DataFrame, player_type: str, factors: dict[str, float]
+) -> pd.DataFrame:
+    """Add z-scores, SGP (when factors exist), above-replacement values and their ranks to ``df``.
+
+    ``df`` needs the player type's stat columns, ``rank``, and (for SGP and replacement levels)
+    ``team_id`` (NULL for free agents) and ``positions``. Returns ``df`` unchanged when no
+    scoring categories are configured.
+    """
+    categories = scoring_categories(player_type)
+    if not categories:
+        return df
+    columns = TABLES[player_type][1]
+    stale = [c for c in df.columns if c.startswith(("z_", "sgp_"))]
+    playing_time = PLAYING_TIME_COLUMN[player_type]
+    df = compute_z_scores(df.drop(columns=stale), categories, columns, playing_time)
+    if factors and "team_id" in df:
+        df = compute_sgp(df, categories, columns, factors, playing_time, team_volume(conn, df, player_type))
+    if "team_id" in df and "positions" in df:
+        lineups = latest_active_lineups(conn)
+        # Hitters use the waiver wire alone; only pitchers get the depth floor.
+        slots = active_pitcher_slots(lineups) if player_type == "Pitcher" else None
+        for column in (z_column, sgp_column):
+            if column(TOTAL) in df:
+                df = compute_above_replacement(
+                    df, player_type, column(TOTAL), [column(cat) for cat in categories if column(cat) in df],
+                    slots,
+                )
+    return df
+
+
 def save_z_scores(db_path: str | Path) -> None:
     """Compute and store z-scores, SGP (when factors exist), above-replacement values and ranks in the batting and pitching tables."""
     with sqlite3.connect(db_path) as conn:
         factors = load_sgp_factors(conn)
-        for player_type, (table, columns) in TABLES.items():
-            categories = scoring_categories(player_type)
-            if not categories:
+        for player_type, (table, _columns) in TABLES.items():
+            if not scoring_categories(player_type):
                 continue
             df = pd.read_sql_query(f"SELECT * FROM {table}", conn)  # noqa: S608 - fixed table names
-            stale = [c for c in df.columns if c.startswith(("z_", "sgp_"))]
-            playing_time = PLAYING_TIME_COLUMN[player_type]
-            df = compute_z_scores(df.drop(columns=stale), categories, columns, playing_time)
-            if factors and "team_id" in df:
-                df = compute_sgp(df, categories, columns, factors, playing_time, team_volume(conn, df, player_type))
-            if "team_id" in df and "positions" in df:
-                lineups = latest_active_lineups(conn)
-                # Hitters use the waiver wire alone; only pitchers get the depth floor.
-                slots = active_pitcher_slots(lineups) if player_type == "Pitcher" else None
-                for column in (z_column, sgp_column):
-                    if column(TOTAL) in df:
-                        df = compute_above_replacement(
-                            df, player_type, column(TOTAL), [column(cat) for cat in categories if column(cat) in df],
-                            slots,
-                        )
+            df = score_frame(conn, df, player_type, factors)
             if "team_id" in df:
                 df["team_id"] = df["team_id"].astype("Int64")  # keep integers despite NULLs
             df.to_sql(table, conn, if_exists="replace", index=False)
@@ -494,7 +510,7 @@ def _above_replacement(row: sqlite3.Row, column, categories: list[str]) -> dict:
 
 
 @dataclass
-class _ScoreContext:
+class ScoreContext:
     """What a stats table offers for one player type, so rows can be attached to players."""
 
     categories: list[str]
@@ -508,7 +524,7 @@ def stats_db_path(db_path: str | Path | None = None) -> Path:
     return Path(db_path or os.getenv("STATS_DB") or DEFAULT_DB)
 
 
-def _score_context(rows: list[sqlite3.Row], player_type: str) -> _ScoreContext | None:
+def _score_context(rows: list[sqlite3.Row], player_type: str) -> ScoreContext | None:
     """Describe the stored score columns, or None if the table can't be used for this player type."""
     categories = scoring_categories(player_type)
     if not categories:
@@ -517,7 +533,7 @@ def _score_context(rows: list[sqlite3.Row], player_type: str) -> _ScoreContext |
     stored = set(rows[0].keys()) if rows else set()
     if rows and any(z_column(c) not in stored for c in wanted):
         return None  # DB was imported with different scoring categories
-    return _ScoreContext(
+    return ScoreContext(
         categories=categories,
         columns=TABLES[player_type][1],
         has_sgp=bool(rows) and all(sgp_column(c) in stored for c in wanted),
@@ -526,21 +542,27 @@ def _score_context(rows: list[sqlite3.Row], player_type: str) -> _ScoreContext |
     )
 
 
-def _attach_scores(player: models.Player, row: sqlite3.Row, context: _ScoreContext) -> None:
-    """Copy the stored scoring stats, z-scores, SGP and above-replacement values onto ``player``."""
+def _int_or_none(value: float | None) -> int | None:
+    """A rank as an int; projections can lack a category entirely, leaving no rank."""
+    return None if value is None or value != value else int(value)
+
+
+def attach_scores(player: models.Player, row: sqlite3.Row, context: ScoreContext, stats: bool = True) -> None:
+    """Copy the stored scoring stats (unless ``stats`` is False), z-scores, SGP and above-replacement values onto ``player``."""
     categories = context.categories
-    player.scoring_stats = {cat: scoring_stat(row, cat, context.columns) for cat in categories}
+    if stats:
+        player.scoring_stats = {cat: scoring_stat(row, cat, context.columns) for cat in categories}
     rank = row["rank"]
     player.cbs_rank = int(rank) if rank is not None and rank < UNRANKED else None
     if row[z_column(TOTAL)] is None:
         return
     player.z_scores = {cat: row[z_column(cat)] for cat in categories}
-    player.z_ranks = {cat: int(row[f"{z_column(cat)}_rank"]) for cat in categories}
+    player.z_ranks = {cat: _int_or_none(row[f"{z_column(cat)}_rank"]) for cat in categories}
     player.z_total = row[z_column(TOTAL)]
     player.z_total_rank = int(row[f"{z_column(TOTAL)}_rank"])
     if context.has_sgp and row[sgp_column(TOTAL)] is not None:
         player.sgp = {cat: row[sgp_column(cat)] for cat in categories}
-        player.sgp_ranks = {cat: int(row[f"{sgp_column(cat)}_rank"]) for cat in categories}
+        player.sgp_ranks = {cat: _int_or_none(row[f"{sgp_column(cat)}_rank"]) for cat in categories}
         player.sgp_total = row[sgp_column(TOTAL)]
         player.sgp_total_rank = int(row[f"{sgp_column(TOTAL)}_rank"])
     if context.has_z_repl and row[f"{z_column(TOTAL)}_{ABOVE_REPLACEMENT}"] is not None:
@@ -597,7 +619,7 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
                 same_team = [r for r in matches if r["team"] == player.team]
                 matches = same_team or matches
                 if matches:
-                    _attach_scores(player, matches[0], context)
+                    attach_scores(player, matches[0], context)
 
 
 def load_team_lineup(
@@ -697,12 +719,83 @@ def load_players(
                     status="",
                     player_type=player_type,
                 )
-                _attach_scores(player, row, context)
+                attach_scores(player, row, context)
                 result[player_type].append(player)
             result[player_type].sort(key=_value_rank)
             if limit is not None:
                 result[player_type] = result[player_type][:limit]
     return result
+
+
+def load_free_agents(
+    player_type: str, offset: int = 0, limit: int = 50, db_path: str | Path | None = None,
+    position: str | None = None,
+) -> list[models.Player]:
+    """One page of free agents of a type, best SGP vs replacement first.
+
+    Sorting and paging happen in the database so only the requested rows are read.
+    Free agents without playing time are left out; those without a rank come last.
+    """
+    if player_type not in TABLES:
+        return []
+    db_path = stats_db_path(db_path)
+    if not db_path.exists():
+        return []
+    table, _columns = TABLES[player_type]
+    playing_time = PLAYING_TIME_COLUMN[player_type]
+    rank = f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
+    params: tuple = ()
+    position_filter = ""
+    if position:
+        # Positions are stored comma separated, so match whole entries only.
+        position_filter = "AND (',' || REPLACE(IFNULL(positions, ''), ' ', '') || ',') LIKE ? ESCAPE '\\' "
+        escaped = position.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params = (f"%,{escaped},%",)
+    where = (
+        f'WHERE team_id IS NULL AND IFNULL("{playing_time}", 0) > 0 {position_filter}'
+        f"ORDER BY {rank} IS NULL, {rank}, name LIMIT ? OFFSET ?"
+    )
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = _read_table(conn, table, where, (*params, limit, offset))
+        context = _score_context(rows, player_type) if rows is not None else None
+    if not rows or context is None:
+        return []
+    players = []
+    for row in rows:
+        player = models.Player(
+            name=row["name"],
+            player_id=row["player_id"],
+            roster_slot="",
+            eligible_positions=[p.strip() for p in (row["positions"] or "").split(",") if p.strip()],
+            team=row["team"],
+            status="",
+            player_type=player_type,
+        )
+        attach_scores(player, row, context)
+        players.append(player)
+    return players
+
+
+_CBS_IDS: tuple[float, dict[str, str]] | None = None
+
+
+def cbs_ids(db_path: str | Path | None = None) -> dict[str, str]:
+    """Map player ids to CBS ids, reloaded only when the stats database file changes."""
+    global _CBS_IDS
+    db_path = stats_db_path(db_path)
+    try:
+        modified = db_path.stat().st_mtime
+    except OSError:
+        return {}
+    if _CBS_IDS is None or _CBS_IDS[0] != modified:
+        with sqlite3.connect(db_path) as conn:
+            try:
+                rows = conn.execute("SELECT player_id, cbs_id FROM players WHERE cbs_id IS NOT NULL AND cbs_id != ''").fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        _CBS_IDS = (modified, {str(pid): str(cbs) for pid, cbs in rows})
+    return _CBS_IDS[1]
 
 
 def _value_rank(player: models.Player) -> tuple[int, int]:

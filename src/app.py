@@ -37,6 +37,19 @@ def format_stat_value(value: float | None, key: str) -> str:
     return str(int(value)) if float(value).is_integer() else str(value)
 
 
+CBS_PLAYER_URL = "https://rummywars.baseball.cbssports.com/players/playerpage/"
+
+
+# A global, not a context variable, because imported macros don't see the render context.
+app.jinja_env.globals["cbs_player_url"] = CBS_PLAYER_URL
+
+
+@app.template_filter("cbs_id")
+def cbs_id_filter(player_id: str | None) -> str | None:
+    """The CBS player id for a player id, or None when unknown."""
+    return zscores.cbs_ids().get(player_id) if player_id else None
+
+
 @app.template_filter("signed")
 def format_signed(value: float) -> str:
     """Two decimals with an explicit sign, using a true minus."""
@@ -138,7 +151,9 @@ def index():
 @app.get("/teams")
 def teams():
     snapshot, league_teams = league.league_teams()
-    return render_template("teams.html", snapshot=snapshot, teams=league_teams)
+    return render_template(
+        "teams.html", snapshot=snapshot, teams=league_teams, systems=projections.systems(),
+    )
 
 
 @app.get("/teams/<int:team_id>")
@@ -158,6 +173,44 @@ def team(team_id: int):
         batters=players["Batter"], pitchers=players["Pitcher"], offseason=MODE == "offseason",
         stat_sources=sources, stat_source=source["key"] if source else "",
     )
+
+
+FREE_AGENT_PAGE_SIZE = 50
+FREE_AGENT_TYPES = {"batters": "Batter", "pitchers": "Pitcher"}
+FREE_AGENT_POSITIONS = {
+    "batters": ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"],
+    "pitchers": ["SP", "RP"],
+}
+
+
+def _free_agent_page(kind: str, offset: int, position: str):
+    player_type = FREE_AGENT_TYPES.get(kind)
+    if player_type is None or offset < 0 or (position and position not in FREE_AGENT_POSITIONS[kind]):
+        abort(404)
+    # One extra row tells whether another page follows.
+    fetched = zscores.load_free_agents(player_type, offset, FREE_AGENT_PAGE_SIZE + 1, position=position or None)
+    return fetched[:FREE_AGENT_PAGE_SIZE], len(fetched) > FREE_AGENT_PAGE_SIZE
+
+
+@app.get("/free-agents")
+def free_agents():
+    kind = request.args.get("type", "batters")
+    position = request.args.get("position", "")
+    players, has_more = _free_agent_page(kind, 0, position)
+    return render_template(
+        "free_agents.html", kind=kind, players=players, has_more=has_more,
+        position=position, positions=FREE_AGENT_POSITIONS.get(kind, []),
+        page_size=FREE_AGENT_PAGE_SIZE, offseason=MODE == "offseason",
+    )
+
+
+@app.get("/free-agents/rows")
+def free_agent_rows():
+    kind = request.args.get("type", "batters")
+    offset = request.args.get("offset", 0, type=int)
+    players, has_more = _free_agent_page(kind, offset, request.args.get("position", ""))
+    html = render_template("_free_agent_rows.html", players=players)
+    return html, 200, {"X-Has-More": "1" if has_more else "0"}
 
 
 @app.post("/teams/<int:team_id>/evaluate")

@@ -13,7 +13,9 @@ the export's FanGraphs ``PlayerId`` (then ``MLBAMID``), NULL with a warning if u
 Every import is stored under a new ``snapshot`` (the UTC time it was inserted), so
 projections are never overwritten and the history of a system's revisions is kept. Query
 the latest with ``snapshot = (SELECT MAX(snapshot) ... WHERE system = ? AND season = ?)``.
-Columns the export lacks are stored as NULL; columns the tables do not list are ignored.
+After importing, z-scores, SGP and above-replacement values are calculated for every
+system's latest projections (see ``projections.save_projection_scores``) and shown when the
+projection is selected on a team page. Columns the export lacks are stored as NULL; columns the tables do not list are ignored.
 """
 
 from __future__ import annotations
@@ -28,6 +30,12 @@ from pathlib import Path
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import projections  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(REPO_ROOT / ".env", override=False)
 DEFAULT_DIR = REPO_ROOT / "data" / "projections"
 FILE_PATTERN = re.compile(r"^(.+)-(\d{4})[-.](batting|pitching)\.csv$", re.IGNORECASE)
 
@@ -200,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError, sqlite3.Error) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
+    try:
+        projections.save_projection_scores(args.db)
+    except (ValueError, sqlite3.Error) as error:
+        print(f"Warning: projection scores not calculated ({error})", file=sys.stderr)
     print(f"Imported {len(files)} projection files as snapshot {snapshot} into {args.db}")
     return 0
 

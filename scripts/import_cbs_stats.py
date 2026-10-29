@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import calculate_sgp  # noqa: E402
+import projections  # noqa: E402
 import zscores  # noqa: E402
 from import_teams import normalize_team_name  # noqa: E402
 from player_ids import PlayerIndex, normalize_name  # noqa: E402
@@ -100,6 +101,7 @@ def import_stats(year: str, data_dir: Path, db_path: Path) -> dict[str, int]:
     except (ValueError, sqlite3.Error) as error:
         print(f"Warning: SGP factors not updated ({error})", file=sys.stderr)
     zscores.save_z_scores(db_path)
+    projections.save_projection_scores(db_path)  # replacement levels depend on who is a free agent now
     with sqlite3.connect(db_path) as conn:
         conn.execute("CREATE INDEX idx_batting_player ON batting (player_id)")
         conn.execute("CREATE INDEX idx_pitching_player ON pitching (player_id)")

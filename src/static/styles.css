@@ -1140,3 +1140,32 @@ td.num .neg {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+.player-link {
+  color: inherit;
+  text-transform: none;
+  text-decoration: none;
+}
+
+.player-link:hover strong,
+.player-link:focus-visible strong {
+  text-decoration: underline;
+}
+
+.filter-label {
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.free-agent-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
