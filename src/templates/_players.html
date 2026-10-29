@@ -1,12 +1,9 @@
 {# Shared player list pieces: a table of scored players and the advanced stats modal that goes with it. #}
-{% macro player_table(players, show_roster=True, notices=none, stat_sources=none, stat_source="") %}
+{% macro player_table(players, show_roster=True, notices=none) %}
+  {% set cols = stat_columns(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats{% if stat_sources %}
-        <select class="stats-source" name="stats" form="stats-source-form" aria-label="Stats source">
-          <option value=""{% if not stat_source %} selected{% endif %}>Season to Date</option>
-          {% for source in stat_sources %}<option value="{{ source.key }}"{% if source.key == stat_source %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
-        </select>{% endif %}</th></tr></thead>
+      <thead><tr><th>Player</th>{% if show_roster %}<th class="tight">Slot</th>{% endif %}<th class="tight">Team</th><th class="num tight">CBS</th><th class="num tight">Rank</th><th class="num sgp-vr">SGP VR</th>{% for col in cols %}<th class="num stat">{{ col }}</th>{% endfor %}</tr></thead>
       <tbody>
         {{ player_rows(players, show_roster, notices) }}
       </tbody>
@@ -15,26 +12,27 @@
 {% endmacro %}
 
 {% macro player_rows(players, show_roster=True, notices=none) %}
+        {% set cols = stat_columns(players) %}
         {% for player in players %}
           <tr>
             {% set found = notices.get(player.name) if notices else none %}
             {% set cbs = player.player_id|cbs_id %}
             <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
-            <td class="num">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
-            <td class="num">{% if vr %}{{ vr[1] }}{% endif %}</td>
-            <td class="num">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
-            {% if show_roster %}<td>{{ player.roster_slot }}</td>{% endif %}<td>{{ player.team }}</td>
-            <td class="stats">{% for key, value in player.scoring_stats.items() %}{{ key }}&nbsp;{{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
+            {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}<td class="narrow tight">{{ player.team }}</td>
+            <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
+            <td class="num narrow tight">{% if vr %}{{ vr[1] }}{% endif %}</td>
+            <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
+            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span class="{{ 'pos' if cat_vr and cat_vr[0] > 0.005 else ('neg' if cat_vr and cat_vr[0] < -0.005 else '') }}">{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
           </tr>
         {% endfor %}
 {% endmacro %}
 
-{% macro status_accordion(players, player_type, status, title, notices=none, stat_sources=none, stat_source="") %}
+{% macro status_accordion(players, player_type, status, title, notices=none) %}
   {% if players %}
     <details class="roster-accordion" data-player-type="{{ player_type }}" data-status="{{ status }}">
       <summary>{{ title }} ({{ players|length }})</summary>
-      {{ player_table(players, notices=notices, stat_sources=stat_sources, stat_source=stat_source) }}
+      {{ player_table(players, notices=notices) }}
     </details>
   {% endif %}
 {% endmacro %}

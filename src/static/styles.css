@@ -999,6 +999,31 @@ td.num {
   font-family: 'DM Mono', monospace;
 }
 
+th.num.stat {
+  padding: 14px 16px;
+  background: var(--primary);
+  border: 0;
+}
+
+td.narrow {
+  font-size: 12px;
+}
+
+th.tight,
+td.tight {
+  width: 1%;
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+td.sgp-vr {
+  font-size: 17px;
+}
+
+td.stats {
+  font-size: 15px;
+}
+
 td.num .pos {
   color: #7ee08a;
 }
@@ -1168,4 +1193,20 @@ td.num .neg {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.roster-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.roster-meta p {
+  margin: 0;
+}
+
+.roster-meta .stats-source {
+  margin-left: 0;
 }

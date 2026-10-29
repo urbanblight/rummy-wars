@@ -135,14 +135,14 @@ class WebAppIntegrationTests(unittest.TestCase):
             projected = self.client.get("/teams/7?stats=ZIPS-2027").get_data(as_text=True)
             unknown = self.client.get("/teams/7?stats=Nope-1999").get_data(as_text=True)
 
-        self.assertIn('name="stats" form="stats-source-form"', current)
+        self.assertIn('name="stats" aria-label="Stats source"', current)
         self.assertIn("Season to Date", current)
         self.assertIn('<option value="ZIPS-2027">ZIPS 2027</option>', current)
-        self.assertIn("HR&nbsp;20", current)
+        self.assertIn(">20<", current)
         self.assertIn('<option value="ZIPS-2027" selected>ZIPS 2027</option>', projected)
-        self.assertIn("HR&nbsp;38", projected)
-        self.assertNotIn("HR&nbsp;20", projected)
-        self.assertIn("HR&nbsp;20", unknown)
+        self.assertIn(">38<", projected)
+        self.assertNotIn(">20<", projected)
+        self.assertIn(">20<", unknown)
 
     def test_team_page_lists_the_teams_players_with_the_advanced_modal(self):
         """A team page shows its batters and pitchers using the shared player table."""
@@ -163,11 +163,11 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn("Test Batter", text)
         self.assertIn("Batters (1)", text)
         self.assertIn("+2.50", text)
-        self.assertIn('<th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>', text)
-        self.assertIn('<td class="num">42</td>', text)
-        self.assertIn("BA&nbsp;.275", text)
+        self.assertIn('<th class="num tight">CBS</th><th class="num tight">Rank</th><th class="num sgp-vr">SGP VR</th>', text)
+        self.assertIn('<td class="num tight">42</td>', text)
+        self.assertIn(">.275<", text)
         self.assertIn('id="adv-modal"', text)
-        self.assertNotIn("<th>Slot</th>", text)
+        self.assertNotIn("<th class=\"tight\">Slot</th>", text)
         self.assertNotIn("<th>Status</th>", text)
 
     def test_team_page_shows_the_lineup_slot_status_and_date_when_a_lineup_exists(self):
@@ -184,7 +184,7 @@ class WebAppIntegrationTests(unittest.TestCase):
             text = self.client.get("/teams/7").get_data(as_text=True)
 
         self.assertIn("Lineup as of 2026-09-28 (period 12)", text)
-        self.assertIn("<th>Slot</th>", text)
+        self.assertIn("<th class=\"tight\">Slot</th>", text)
         self.assertNotIn("<th>Status</th>", text)
         self.assertIn(">DH</td>", text)
         self.assertIn("Lineup Starter", text)
@@ -476,7 +476,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertNotIn("LEAGUE Z-SCORES", text)
         self.assertIn('class="adv-info-tip"', text)
         self.assertIn('"z_repl": 0.5', text)
-        self.assertIn("<th class=\"num\">SGP VR</th>", text)
+        self.assertIn("<th class=\"num sgp-vr\">SGP VR</th>", text)
         self.assertIn("+1.00", text)
         self.assertNotIn("adv-legend", text)
 

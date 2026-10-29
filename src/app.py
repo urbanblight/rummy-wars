@@ -37,6 +37,16 @@ def format_stat_value(value: float | None, key: str) -> str:
     return str(int(value)) if float(value).is_integer() else str(value)
 
 
+@app.template_global("stat_columns")
+def stat_columns(players) -> list[str]:
+    """Scoring stat columns for a player table: configured categories first, then any other stats present."""
+    present = {key for player in players for key in player.scoring_stats}
+    types = {player.player_type for player in players}
+    ordered = [cat for t in ("Batter", "Pitcher") if t in types for cat in zscores.scoring_categories(t)]
+    ordered += sorted(present - set(ordered))
+    return [cat for cat in dict.fromkeys(ordered) if cat in present]
+
+
 CBS_PLAYER_URL = "https://rummywars.baseball.cbssports.com/players/playerpage/"
 
 
