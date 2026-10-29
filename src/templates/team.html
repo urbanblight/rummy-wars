@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "_players.html" import player_table, advanced_modal, advanced_modal_script %}
+{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script %}
+{% from "_loading.html" import loading_screen %}
 
 {% block title %}RUMMY WARS {{ team.name }}{% endblock %}
 
@@ -16,25 +17,78 @@
       <a class="text-link" href="{{ url_for('teams') }}">All teams <span aria-hidden="true">-></span></a>
     </header>
 
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="alert {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    {% if lineup %}
+      <section class="upload-panel evaluate-panel" aria-labelledby="evaluate-title">
+        <div>
+          <p class="panel-kicker">ROSTER EVALUATOR</p>
+          <h2 id="evaluate-title">Check this lineup</h2>
+          <p class="muted">Evaluate the lineup as of {{ lineup.effective_date }} against the league's roster limits and player eligibility rules, just like an uploaded roster.</p>
+        </div>
+        <form id="evaluate-form" action="{{ url_for('evaluate_team', team_id=team.id) }}" method="post">
+          <button type="submit">Evaluate lineup <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+    {% endif %}
+
     <section class="roster-section" aria-labelledby="roster-title">
       <h2 id="roster-title">Players</h2>
       {% if lineup %}
         <p class="muted">Lineup as of {{ lineup.effective_date }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>
+        {% set all_players = batters + pitchers %}
+        {% set active_batters = batters|selectattr('status', 'equalto', 'Active')|list %}
+        {% set active_pitchers = pitchers|selectattr('status', 'equalto', 'Active')|list %}
+        {% set batter_reserves = batters|selectattr('status', 'equalto', 'Reserves')|list %}
+        {% set batter_injured = batters|selectattr('status', 'equalto', 'Injured')|list %}
+        {% set batter_minors = batters|selectattr('status', 'equalto', 'Minors')|list %}
+        {% set pitcher_reserves = pitchers|selectattr('status', 'equalto', 'Reserves')|list %}
+        {% set pitcher_injured = pitchers|selectattr('status', 'equalto', 'Injured')|list %}
+        {% set pitcher_minors = pitchers|selectattr('status', 'equalto', 'Minors')|list %}
+        {% set other_players = all_players|rejectattr('status', 'equalto', 'Active')|rejectattr('status', 'equalto', 'Reserves')|rejectattr('status', 'equalto', 'Injured')|rejectattr('status', 'equalto', 'Minors')|list %}
+      {% else %}
+        {% set active_batters = batters %}
+        {% set active_pitchers = pitchers %}
       {% endif %}
       <section aria-labelledby="batters-title">
-        <h3 id="batters-title">Batters ({{ batters|length }})</h3>
-        {{ player_table(batters, show_roster=lineup is not none) }}
+        <h3 id="batters-title">Batters ({{ active_batters|length }})</h3>
+        {{ player_table(active_batters, show_roster=lineup is not none) }}
+        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters") }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters") }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters") }}{% endif %}
       </section>
       <section aria-labelledby="pitchers-title">
-        <h3 id="pitchers-title">Pitchers ({{ pitchers|length }})</h3>
-        {{ player_table(pitchers, show_roster=lineup is not none) }}
+        <h3 id="pitchers-title">Pitchers ({{ active_pitchers|length }})</h3>
+        {{ player_table(active_pitchers, show_roster=lineup is not none) }}
+        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers") }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers") }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers") }}{% endif %}
       </section>
+      {% if lineup and other_players %}
+        <section aria-labelledby="other-players-title">
+          <h3 id="other-players-title">Other players ({{ other_players|length }})</h3>
+          {{ player_table(other_players) }}
+        </section>
+      {% endif %}
     </section>
   </main>
 
   {{ advanced_modal() }}
+  {% if lineup %}{{ loading_screen(offseason, "this team's latest lineup") }}{% endif %}
 {% endblock %}
 
 {% block scripts %}
 {{ advanced_modal_script() }}
+{% if lineup %}
+<script>
+  document.querySelector('#evaluate-form').addEventListener('submit', function (event) {
+    document.querySelector('#loading-screen').hidden = false;
+    event.target.querySelector('button').disabled = true;
+  });
+</script>
+{% endif %}
 {% endblock %}

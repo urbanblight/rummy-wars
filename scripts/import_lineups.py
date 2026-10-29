@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Import CBS roster-overview (lineup) exports into a sqlite database.
 
 Usage:

@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app
+from app import app, notices_by_player
 import models
 
 
@@ -103,9 +103,148 @@ class WebAppIntegrationTests(unittest.TestCase):
 
         self.assertIn("Lineup as of 2026-09-28 (period 12)", text)
         self.assertIn("<th>Slot</th>", text)
-        self.assertIn("<th>Status</th>", text)
+        self.assertNotIn("<th>Status</th>", text)
         self.assertIn(">DH</td>", text)
         self.assertIn("Lineup Starter", text)
+
+    def test_team_page_collapses_non_active_statuses(self):
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        players = [
+            models.Player(name="Active Batter", roster_slot="C", eligible_positions=["C"], team="HOU", status="Active", player_type="Batter"),
+            models.Player(name="Reserve Batter", roster_slot="Reserves", eligible_positions=["1B"], team="HOU", status="Reserves", player_type="Batter"),
+            models.Player(name="Injured Batter", roster_slot="IL", eligible_positions=["OF"], team="HOU", status="Injured", player_type="Batter"),
+            models.Player(name="Minor Leaguer", roster_slot="Minors", eligible_positions=["SS"], team="HOU", status="Minors", player_type="Batter"),
+            models.Player(name="Active Pitcher", roster_slot="P", eligible_positions=["P"], team="HOU", status="Active", player_type="Pitcher"),
+            models.Player(name="Reserve Pitcher", roster_slot="Reserves", eligible_positions=["P"], team="HOU", status="Reserves", player_type="Pitcher"),
+            models.Player(name="Injured Pitcher", roster_slot="IL", eligible_positions=["P"], team="HOU", status="Injured", player_type="Pitcher"),
+            models.Player(name="Minor League Pitcher", roster_slot="Minors", eligible_positions=["P"], team="HOU", status="Minors", player_type="Pitcher"),
+        ]
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.zscores.load_team_roster", return_value=(
+                    {"effective_date": "2026-09-28", "period_id": 12},
+                    {"Batter": players[:4], "Pitcher": players[4:]},
+                )):
+            text = self.client.get("/teams/7").get_data(as_text=True)
+
+        self.assertIn("Batters (1)", text)
+        self.assertIn("Pitchers (1)", text)
+        for player_type, status, player in (
+            ("Batter", "Reserves", "Reserve Batter"),
+            ("Batter", "Injured", "Injured Batter"),
+            ("Batter", "Minors", "Minor Leaguer"),
+            ("Pitcher", "Reserves", "Reserve Pitcher"),
+            ("Pitcher", "Injured", "Injured Pitcher"),
+            ("Pitcher", "Minors", "Minor League Pitcher"),
+        ):
+            marker = f'data-player-type="{player_type}" data-status="{status}"'
+            accordion = text.split(marker, maxsplit=1)[1].split("</details>", maxsplit=1)[0]
+            self.assertNotIn("<details open", text)
+            self.assertIn(player, accordion)
+        self.assertIn("Active Batter", text)
+        self.assertIn("Active Pitcher", text)
+
+    def test_team_page_offers_lineup_evaluation_only_with_a_lineup(self):
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        with_lineup = ({"effective_date": "2026-09-28", "period_id": None}, {"Batter": [], "Pitcher": []})
+        for roster, expected in ((with_lineup, True), ((None, {"Batter": [], "Pitcher": []}), False)):
+            with patch("app.league.get_team", return_value=team), \
+                    patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                    patch("app.zscores.load_team_roster", return_value=roster):
+                text = self.client.get("/teams/7").get_data(as_text=True)
+            self.assertEqual('action="/teams/7/evaluate"' in text, expected)
+            self.assertEqual('id="loading-screen"' in text, expected)
+
+    def _lineup_roster(self):
+        starter = models.Player(
+            name="Lineup Starter", roster_slot="C", eligible_positions=["C"], team="TB", status="Active", player_type="Batter",
+        )
+        return {"effective_date": "2026-09-28", "period_id": None}, models.TeamRoster(players=[starter])
+
+    def test_notices_are_grouped_by_the_player_they_are_about(self):
+        violation = models.PlayerNotice("Ann Aaron is placed in an Injured slot", "Ann Aaron")
+        warning = models.PlayerNotice("Ann Aaron has few ABs", "Ann Aaron")
+        other = models.PlayerNotice("Bo Bell is in a Minors slot", "Bo Bell")
+
+        grouped = notices_by_player([violation, "Exceeded Reserve Slot Limit: 9/7"], [warning, other, "A general note"])
+
+        self.assertEqual(grouped, {
+            "Ann Aaron": [
+                {"kind": "violation", "message": "Ann Aaron is placed in an Injured slot"},
+                {"kind": "warning", "message": "Ann Aaron has few ABs"},
+            ],
+            "Bo Bell": [{"kind": "warning", "message": "Bo Bell is in a Minors slot"}],
+        })
+
+    def test_results_show_an_icon_only_for_players_named_in_notices(self):
+        violation = models.PlayerNotice("Yainer Diaz is placed in an Injured slot and was activated 2026-06-01", "Yainer Diaz")
+        warnings = [models.PlayerNotice("Jake Bennett is in a Minors slot", "Jake Bennett"), "General warning"]
+        with patch("app.utils.validate_league_rules", return_value=([violation], warnings)):
+            with self.sample_csv.open("rb") as csv_file:
+                response = self.client.post(
+                    "/evaluate",
+                    data={"roster": (csv_file, self.sample_csv.name)},
+                    content_type="multipart/form-data",
+                )
+
+        text = response.get_data(as_text=True)
+        self.assertEqual(text.count('class="note-icon"'), 2)
+        self.assertIn('aria-label="Notifications for Yainer Diaz"', text)
+        self.assertIn('aria-label="Notifications for Jake Bennett"', text)
+        self.assertIn(">🚨</button>", text)
+        self.assertIn(">⚠️</button>", text)
+        self.assertIn('id="note-modal"', text)
+
+    def test_evaluating_a_teams_lineup_shows_the_same_report_as_an_uploaded_roster(self):
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.zscores.load_team_lineup", return_value=self._lineup_roster()), \
+                patch("app.utils.validate_league_rules", return_value=(["Exceeded Minors Slot Limit: 21/20"], ["Review player eligibility"])) as validate:
+            response = self.client.post("/teams/7/evaluate")
+
+        text = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Roster report", text)
+        self.assertIn("The Outfield lineup as of 2026-09-28 (offseason)", text)
+        self.assertIn("1 rule violation found", text)
+        self.assertIn("Exceeded Minors Slot Limit: 21/20", text)
+        self.assertIn("Review player eligibility", text)
+        self.assertIn("Lineup Starter", text)
+        self.assertIn('href="/teams/7"', text)
+        self.assertIn("Back to team", text)
+        self.assertNotIn("Check another file", text)
+        validate.assert_called_once()
+
+    def test_evaluating_a_team_without_a_lineup_redirects_back_with_a_message(self):
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.zscores.load_team_lineup", return_value=None), \
+                patch("app.zscores.load_team_roster", return_value=(None, {"Batter": [], "Pitcher": []})):
+            response = self.client.post("/teams/7/evaluate", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No lineup has been imported for this team yet.", response.get_data(as_text=True))
+
+    def test_a_failed_lineup_evaluation_redirects_back_with_a_message(self):
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.zscores.load_team_lineup", return_value=self._lineup_roster()), \
+                patch("app.zscores.load_team_roster", return_value=self._lineup_roster()[0:1] + ({"Batter": [], "Pitcher": []},)), \
+                patch("app.utils.validate_league_rules", side_effect=RuntimeError("MLB API down")):
+            response = self.client.post("/teams/7/evaluate", follow_redirects=True)
+
+        self.assertIn("The lineup could not be evaluated.", response.get_data(as_text=True))
+
+    def test_lineup_evaluation_is_post_only_and_needs_a_known_team(self):
+        self.assertEqual(self.client.get("/teams/7/evaluate").status_code, 405)
+        with patch("app.league.get_team", return_value=None):
+            self.assertEqual(self.client.post("/teams/999/evaluate").status_code, 404)
 
     def test_unknown_team_returns_404(self):
         with patch("app.league.get_team", return_value=None):
@@ -211,8 +350,18 @@ class WebAppIntegrationTests(unittest.TestCase):
         pitchers_section = pitchers_section.split("</section>", maxsplit=1)[0]
 
         self.assertIn("Roster report", response_text)
-        self.assertIn("Batters (29)", response_text)
-        self.assertIn("Pitchers (26)", response_text)
+        self.assertIn("Batters (10)", response_text)
+        self.assertIn("Pitchers (10)", response_text)
+        for title in (
+            "Reserve batters (4)",
+            "Injured batters (3)",
+            "Minor league batters (12)",
+            "Reserve pitchers (3)",
+            "Injured pitchers (5)",
+            "Minor league pitchers (8)",
+        ):
+            self.assertIn(f"<summary>{title}</summary>", response_text)
+        self.assertNotIn("<th>Status</th>", response_text)
         self.assertIn("Yainer Diaz", batters_section)
         self.assertNotIn("Jake Bennett", batters_section)
         self.assertIn("Jake Bennett", pitchers_section)
@@ -267,4 +416,3 @@ class WebAppIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main() # pragma: no cover
-

@@ -743,7 +743,8 @@ td small {
   }
 }
 
-.adv-icon {
+.adv-icon,
+.note-icon {
   padding: 2px 6px;
   background: transparent;
   border: 0;
@@ -753,7 +754,9 @@ td small {
 }
 
 .adv-icon:hover,
-.adv-icon:focus-visible {
+.adv-icon:focus-visible,
+.note-icon:hover,
+.note-icon:focus-visible {
   background: var(--panel-dark);
   outline: 2px solid var(--accent);
 }
@@ -1010,4 +1013,89 @@ td.num .neg {
 .team-link:focus-visible strong {
   color: var(--accent);
   text-decoration: underline;
+}
+
+.evaluate-panel {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.evaluate-panel form {
+  display: flex;
+}
+
+.evaluate-panel button {
+  min-height: 62px;
+  padding: 0 32px;
+}
+
+@media (max-width: 720px) {
+  .evaluate-panel {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.note-icon {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.roster-accordion {
+  margin-top: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.roster-accordion summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  color: var(--accent);
+  background: var(--primary);
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.roster-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.roster-accordion summary::after {
+  content: '+';
+  font-size: 20px;
+}
+
+.roster-accordion[open] summary::after {
+  content: '-';
+}
+
+.roster-accordion summary:hover {
+  background: var(--primary-glow);
+}
+
+.roster-accordion summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.roster-accordion .table-wrap {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+#note-modal-list .violation,
+#note-modal-list .warning {
+  margin: 12px 0 0;
 }

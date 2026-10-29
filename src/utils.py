@@ -418,7 +418,10 @@ def _check_minors_player_stats(
             try:
                 if stats['ab'] > MAX_MINORS_AB:
                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}"
+                    milb_msg = models.PlayerNotice(
+                        f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}",
+                        player.name,
+                    )
                     if MODE == "offseason":
                         violations.append(milb_msg)
                     else:
@@ -431,7 +434,10 @@ def _check_minors_player_stats(
             try:
                 if stats['ip'] > MAX_MINORS_IP:
                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}"
+                    milb_msg = models.PlayerNotice(
+                        f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}",
+                        player.name,
+                    )
                     if MODE == "offseason":
                         violations.append(milb_msg)
                     else:
@@ -441,7 +447,9 @@ def _check_minors_player_stats(
             except Exception as e:  # noqa: BLE001
                 raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
         else:
-            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
+            unexpected_position_warning = models.PlayerNotice(
+                f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}", player.name
+            )
             warnings.append(unexpected_position_warning)
     else:
         LOGGER.debug(f"{player.name} found MLB API but no stats found")
@@ -514,7 +522,9 @@ def validate_league_rules(
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
             latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            il_msg = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            il_msg = models.PlayerNotice(
+                f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}", player.name
+            )
             if MODE == "offseason":
                 violations.append(il_msg)
             else:

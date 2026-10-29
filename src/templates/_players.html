@@ -1,25 +1,34 @@
 {# Shared player list pieces: a table of scored players and the advanced stats modal that goes with it. #}
-{% macro player_table(players, show_roster=True) %}
+{% macro player_table(players, show_roster=True, notices=none) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th><th></th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th>{% if show_roster %}<th>Status</th>{% endif %}<th>Stats</th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th><th></th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats</th></tr></thead>
       <tbody>
         {% for player in players %}
           <tr>
-            <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}</small></td>
+            {% set found = notices.get(player.name) if notices else none %}
+            <td><strong>{{ player.name }}</strong><small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}</small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             <td class="num">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
             <td class="num">{% if vr %}{{ vr[1] }}{% endif %}</td>
             <td class="num">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
             <td>{% if player.z_total is not none %}<button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %}</td>
             {% if show_roster %}<td>{{ player.roster_slot }}</td>{% endif %}<td>{{ player.team }}</td>
-            {% if show_roster %}<td><span class="badge {{ player.status|lower }}">{{ player.status }}</span></td>{% endif %}
             <td class="stats">{% for key, value in player.scoring_stats.items() %}{{ key }}&nbsp;{{ value|stat_value(key) }}{% if not loop.last %}<span> · </span>{% endif %}{% endfor %}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+{% endmacro %}
+
+{% macro status_accordion(players, player_type, status, title, notices=none) %}
+  {% if players %}
+    <details class="roster-accordion" data-player-type="{{ player_type }}" data-status="{{ status }}">
+      <summary>{{ title }} ({{ players|length }})</summary>
+      {{ player_table(players, notices=notices) }}
+    </details>
+  {% endif %}
 {% endmacro %}
 
 {% macro advanced_modal() %}
@@ -107,6 +116,46 @@
       } else if (e.target.closest('.adv-info-icon')) {
         e.target.closest('.adv-info').classList.toggle('open');
       } else if (e.target === modal || e.target.closest('.adv-close')) {
+        modal.close();
+      }
+    });
+  })();
+</script>
+{% endmacro %}
+
+{% macro notice_modal() %}
+  <dialog id="note-modal" class="adv-modal" aria-labelledby="note-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">NOTIFICATIONS</p>
+          <h2 id="note-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close note-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="note-modal-list"></div>
+    </div>
+  </dialog>
+{% endmacro %}
+
+{% macro notice_modal_script() %}
+<script>
+  (function () {
+    var modal = document.getElementById('note-modal');
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.note-icon');
+      if (btn) {
+        document.getElementById('note-modal-title').textContent = btn.dataset.name;
+        var list = document.getElementById('note-modal-list');
+        list.textContent = '';
+        JSON.parse(btn.dataset.notices).forEach(function (notice) {
+          var item = document.createElement('p');
+          item.className = notice.kind;
+          item.textContent = notice.message;
+          list.append(item);
+        });
+        modal.showModal();
+      } else if (e.target === modal || e.target.closest('.note-close')) {
         modal.close();
       }
     });

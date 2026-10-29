@@ -53,6 +53,20 @@ def inject_current_year():
     return {"current_year": datetime.datetime.now(tz=datetime.timezone.utc).date().year}
 
 
+def notices_by_player(violations: list[str], warnings: list[str]) -> dict[str, list[dict]]:
+    """Group the violations and warnings that are about a player by that player's name.
+
+    Messages that are not about one player (such as slot limits) are left out.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for kind, messages in (("violation", violations), ("warning", warnings)):
+        for message in messages:
+            name = getattr(message, "player", None)
+            if name:
+                grouped.setdefault(name, []).append({"kind": kind, "message": str(message)})
+    return grouped
+
+
 def evaluate_upload(file_storage):
     """Parse and evaluate an uploaded CBS roster without writing it to disk."""
     csv_bytes = file_storage.stream.read()
@@ -86,7 +100,39 @@ def team(team_id: int):
     lineup, players = zscores.load_team_roster(team_id)
     return render_template(
         "team.html", team=found, snapshot=snapshot, lineup=lineup,
-        batters=players["Batter"], pitchers=players["Pitcher"],
+        batters=players["Batter"], pitchers=players["Pitcher"], offseason=MODE == "offseason",
+    )
+
+
+@app.post("/teams/<int:team_id>/evaluate")
+def evaluate_team(team_id: int):
+    """Evaluate a team's most recent imported lineup like an uploaded roster."""
+    found = league.get_team(team_id)
+    if found is None:
+        abort(404)
+    loaded = zscores.load_team_lineup(team_id)
+    if loaded is None:
+        flash("No lineup has been imported for this team yet.", "error")
+        return redirect(url_for("team", team_id=team_id))
+    lineup, roster = loaded
+
+    try:
+        violations, warnings = utils.validate_league_rules(roster)
+    except Exception:
+        LOGGER.exception("Lineup evaluation failed for team %s", team_id)
+        flash("The lineup could not be evaluated. Check the server log for details.", "error")
+        return redirect(url_for("team", team_id=team_id))
+
+    period = "offseason" if lineup["period_id"] is None else f"period {lineup['period_id']}"
+    return render_template(
+        "results.html",
+        filename=f"{found['name']} lineup as of {lineup['effective_date']} ({period})",
+        roster=roster,
+        violations=violations,
+        warnings=warnings,
+        notices=notices_by_player(violations, warnings),
+        back_url=url_for("team", team_id=team_id),
+        back_label="Back to team",
     )
 
 
@@ -117,7 +163,8 @@ def evaluate():
         filename=upload.filename,
         roster=roster,
         violations=violations,
-        warnings=warnings
+        warnings=warnings,
+        notices=notices_by_player(violations, warnings),
     )
 
 

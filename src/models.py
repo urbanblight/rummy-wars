@@ -63,6 +63,21 @@ class Player:
         }
 
 
+class PlayerNotice(str):
+    """A violation or warning message that remembers which player it is about.
+
+    It is an ordinary string everywhere (so existing callers and comparisons keep
+    working) with the player's name in ``player``.
+    """
+
+    player: str
+
+    def __new__(cls, message: str, player: str) -> PlayerNotice:
+        notice = super().__new__(cls, message)
+        notice.player = player
+        return notice
+
+
 @dataclass
 class RummyWarsBaseError(Exception):
     """Base application exception with a standard message and optional error code.

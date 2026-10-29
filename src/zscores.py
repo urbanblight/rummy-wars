@@ -592,36 +592,36 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
                     _attach_scores(player, matches[0], context)
 
 
-def load_team_roster(
+def load_team_lineup(
     team_id: int, db_path: str | Path | None = None
-) -> tuple[dict | None, dict[str, list[models.Player]]]:
-    """A fantasy team's players in the order of its most recent imported lineup, with scores.
+) -> tuple[dict, models.TeamRoster] | None:
+    """A fantasy team's most recent imported lineup as a scored roster, in lineup order.
 
-    Returns ``(lineup, players)``. ``lineup`` is ``{"effective_date", "period_id"}`` (the
-    period is None for the offseason) and each player carries the lineup's slot and status.
-    Without a lineup for the team this falls back to ``load_players`` and ``lineup`` is None.
+    Returns ``(lineup, roster)`` where ``lineup`` is ``{"effective_date", "period_id"}`` (the
+    period is None for the offseason) and every player carries the lineup's slot and
+    status plus any stored scores. Returns None if the team has no imported lineup.
     """
     db_path = stats_db_path(db_path)
-    rows = []
-    if db_path.exists():
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            try:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM lineups
-                    WHERE team_id = ?
-                      AND effective_date || printf('%06d', IFNULL(period_id, 0)) = (
-                          SELECT MAX(effective_date || printf('%06d', IFNULL(period_id, 0)))
-                          FROM lineups WHERE team_id = ?)
-                    ORDER BY slot_order
-                    """,
-                    (team_id, team_id),
-                ).fetchall()
-            except sqlite3.OperationalError:
-                rows = []
+    if not db_path.exists():
+        return None
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM lineups
+                WHERE team_id = ?
+                  AND effective_date || printf('%06d', IFNULL(period_id, 0)) = (
+                      SELECT MAX(effective_date || printf('%06d', IFNULL(period_id, 0)))
+                      FROM lineups WHERE team_id = ?)
+                ORDER BY slot_order
+                """,
+                (team_id, team_id),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return None
     if not rows:
-        return None, load_players(team_id, db_path)
+        return None
     roster = models.TeamRoster(players=[
         models.Player(
             name=row["name"],
@@ -634,8 +634,24 @@ def load_team_roster(
         for row in rows
     ])
     evaluate_roster(roster, db_path)
+    return {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"]}, roster
+
+
+def load_team_roster(
+    team_id: int, db_path: str | Path | None = None
+) -> tuple[dict | None, dict[str, list[models.Player]]]:
+    """A fantasy team's players in the order of its most recent imported lineup, with scores.
+
+    Returns ``(lineup, players)`` (see ``load_team_lineup``) with the players split into
+    ``{"Batter": [...], "Pitcher": [...]}``. Without a lineup for the team this falls back
+    to ``load_players`` and ``lineup`` is None.
+    """
+    loaded = load_team_lineup(team_id, db_path)
+    if loaded is None:
+        return None, load_players(team_id, db_path)
+    lineup, roster = loaded
     players = {player_type: [p for p in roster.players if p.player_type == player_type] for player_type in TABLES}
-    return {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"]}, players
+    return lineup, players
 
 
 def load_players(
