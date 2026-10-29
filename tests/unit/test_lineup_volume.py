@@ -18,7 +18,7 @@ def lineup_row(team_id, name, player_type, slot, status="Active", effective_date
 def make_conn(rows):
     conn = sqlite3.connect(":memory:")
     import_lineups.ensure_schema(conn)
-    conn.executemany(f"INSERT INTO lineups VALUES ({', '.join('?' * 15)})", rows)
+    conn.executemany(f"INSERT INTO lineups ({', '.join(import_lineups.COLUMNS)}) VALUES ({', '.join('?' * 15)})", rows)
     return conn
 
 

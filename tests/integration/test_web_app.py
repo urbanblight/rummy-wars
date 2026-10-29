@@ -180,10 +180,10 @@ class WebAppIntegrationTests(unittest.TestCase):
         with patch("app.league.get_team", return_value=team), \
                 patch("app.league.league_teams", return_value=(snapshot, [team])), \
                 patch("app.zscores.load_team_roster", return_value=(
-                    {"effective_date": "2026-09-28", "period_id": 12}, {"Batter": [starter], "Pitcher": []})):
+                    {"effective_date": "2026-09-28", "period_id": 12, "captured_at": "2026-10-01T15:00:00+00:00"}, {"Batter": [starter], "Pitcher": []})):
             text = self.client.get("/teams/7").get_data(as_text=True)
 
-        self.assertIn("Lineup as of 2026-09-28 (period 12)", text)
+        self.assertIn("Lineup as of 2026-10-01 (period 12)", text)
         self.assertIn("<th class=\"tight\">Slot</th>", text)
         self.assertNotIn("<th>Status</th>", text)
         self.assertIn(">DH</td>", text)

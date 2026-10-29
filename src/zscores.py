@@ -627,8 +627,9 @@ def load_team_lineup(
 ) -> tuple[dict, models.TeamRoster] | None:
     """A fantasy team's most recent imported lineup as a scored roster, in lineup order.
 
-    Returns ``(lineup, roster)`` where ``lineup`` is ``{"effective_date", "period_id"}`` (the
-    period is None for the offseason) and every player carries the lineup's slot and
+    Returns ``(lineup, roster)`` where ``lineup`` is ``{"effective_date", "period_id", "captured_at"}``
+    (the period is None for the offseason; ``captured_at`` is None for rows imported before it was
+    recorded) and every player carries the lineup's slot and
     status plus any stored scores. Returns None if the team has no imported lineup.
     """
     db_path = stats_db_path(db_path)
@@ -665,7 +666,9 @@ def load_team_lineup(
         for row in rows
     ])
     evaluate_roster(roster, db_path)
-    return {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"]}, roster
+    captured_at = rows[0]["captured_at"] if "captured_at" in rows[0].keys() else None
+    lineup = {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"], "captured_at": captured_at}
+    return lineup, roster
 
 
 def load_team_roster(

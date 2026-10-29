@@ -126,13 +126,13 @@ def test_load_team_roster_follows_the_latest_lineup_order_and_attaches_scores(tm
         (7, None, "2026-09-28", 2, "Batter", "Reserves", "1B", "bench bat", "Bench Bat", "1B", "TB", None, None, None, None),
         (7, None, "2026-09-28", 3, "Batter", "Minors", "SS", "no stats kid", "No Stats Kid", "SS", "TB", None, None, None, None),
     ]
-    conn.executemany(f"INSERT INTO lineups VALUES ({', '.join('?' * 15)})", lineup)
+    conn.executemany(f"INSERT INTO lineups ({', '.join(import_lineups.COLUMNS)}) VALUES ({', '.join('?' * 15)})", lineup)
     conn.commit()
     conn.close()
 
     info, players = zscores.load_team_roster(7, db)
 
-    assert info == {"effective_date": "2026-09-28", "period_id": None}
+    assert info == {"effective_date": "2026-09-28", "period_id": None, "captured_at": None}
     assert [(p.name, p.roster_slot, p.status) for p in players["Batter"]] == [
         ("Slot Bat", "DH", "Active"), ("Bench Bat", "1B", "Reserves"), ("No Stats Kid", "SS", "Minors"),
     ]
@@ -174,7 +174,7 @@ def test_active_sgp_vr_sums_only_the_players_active_in_each_teams_latest_lineup(
         (2, None, "2026-09-28", 2, "Batter", "Active", "1B", "unscored", "Unscored", "1B", "TB", None, None, None, None),
         (2, None, "2026-09-28", 3, "Pitcher", "Active", "RP", "arm b", "Arm B", "RP", "TB", None, None, None, None),
     ]
-    conn.executemany(f"INSERT INTO lineups VALUES ({', '.join('?' * 15)})", rows)
+    conn.executemany(f"INSERT INTO lineups ({', '.join(import_lineups.COLUMNS)}) VALUES ({', '.join('?' * 15)})", rows)
     conn.commit()
 
     assert league.active_sgp_vr(conn) == {1: 7.5, 2: -2.0}

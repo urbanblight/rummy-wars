@@ -37,7 +37,7 @@ docker buildx build \
 DIGEST=$(gcloud artifacts docker images describe us-west1-docker.pkg.dev/rummy-wars/containers/rw-app:latest --format='value(image_summary.digest)')
 [[ -n "$DIGEST" ]] || { printf '%s\n' 'Unable to resolve the pushed image digest.' >&2; exit 1; }
 # Deploy the image, public service settings, runtime configuration, and secret.
-gcloud run deploy rw-service \
+gcloud run deploy rw-service-beta \
     --image us-west1-docker.pkg.dev/rummy-wars/containers/rw-app@$DIGEST \
     --region us-west1 \
     --set-env-vars "$ENV_VARS" \

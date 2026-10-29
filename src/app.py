@@ -13,14 +13,16 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 try:
-    from . import league, projections, utils, zscores
+    from . import auth, league, projections, utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
+    import auth
     import league
     import projections
     import utils
     import zscores
 
 app = Flask(__name__)
+auth.init_app(app)
 
 
 @app.template_filter("stat_value")
@@ -45,6 +47,13 @@ def stat_columns(players) -> list[str]:
     ordered = [cat for t in ("Batter", "Pitcher") if t in types for cat in zscores.scoring_categories(t)]
     ordered += sorted(present - set(ordered))
     return [cat for cat in dict.fromkeys(ordered) if cat in present]
+
+
+@app.template_global("lineup_as_of")
+def lineup_as_of(lineup: dict) -> str:
+    """The date a lineup was captured, falling back to its effective date for rows imported before that was recorded."""
+    captured = lineup.get("captured_at")
+    return captured[:10] if captured else lineup["effective_date"]
 
 
 CBS_PLAYER_URL = "https://rummywars.baseball.cbssports.com/players/playerpage/"
@@ -174,7 +183,9 @@ def team(team_id: int):
     snapshot, _teams = league.league_teams()
     lineup, players = zscores.load_team_roster(team_id)
     sources = projections.systems()
-    source = next((s for s in sources if s["key"] == request.args.get("stats")), None)
+    source = None
+    if auth.is_admin():
+        source = next((s for s in sources if s["key"] == request.args.get("stats")), None)
     if source:
         for player_type, group in players.items():
             projections.apply_stats(group, player_type, source["system"], source["season"])
@@ -245,7 +256,7 @@ def evaluate_team(team_id: int):
     period = "offseason" if lineup["period_id"] is None else f"period {lineup['period_id']}"
     return render_template(
         "results.html",
-        filename=f"{found['name']} lineup as of {lineup['effective_date']} ({period})",
+        filename=f"{found['name']} lineup as of {lineup_as_of(lineup)} ({period})",
         roster=roster,
         violations=violations,
         warnings=warnings,

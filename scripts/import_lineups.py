@@ -15,7 +15,9 @@ where ``<date>`` is the effective date as YYYYMMDD. Run ``import_teams.py`` and
 stored by canonical ``player_id`` (NULL, with a warning, for a name the ID map does not
 know). Every player in a file becomes one row of the ``lineups``
 table, keyed by team, period (NULL for the offseason), effective date and ``slot_order``
-(the player's order in the file). Importing a lineup again replaces its rows. Files in a
+(the player's order in the file). Importing a lineup again replaces its rows. Each row also
+records ``captured_at``, the UTC time of the import, which is distinct from the effective
+date taken from the file name. Files in a
 folder whose names do not match are skipped with a warning.
 
 The per-player scoring stats in the export are not stored: they come from the stats
@@ -31,7 +33,7 @@ import re
 import sqlite3
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -65,7 +67,8 @@ CREATE TABLE IF NOT EXISTS lineups (
     proj_rank INTEGER,
     actual_rank INTEGER,
     rostered_pct REAL,
-    started_pct REAL
+    started_pct REAL,
+    captured_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_lineups_slot
     ON lineups (team_id, IFNULL(period_id, -1), effective_date, slot_order);
@@ -155,6 +158,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     columns = [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
     if columns and "player_id" not in columns:
         conn.execute("DROP TABLE lineups")
+    elif columns and "captured_at" not in columns:
+        conn.execute("ALTER TABLE lineups ADD COLUMN captured_at TEXT")
     conn.executescript(SCHEMA)
 
 
@@ -173,9 +178,13 @@ def import_lineup(path: Path, conn: sqlite3.Connection, index: PlayerIndex | Non
         "DELETE FROM lineups WHERE team_id = ? AND period_id IS ? AND effective_date = ?",
         (lineup.team_id, lineup.period_id, lineup.effective_date),
     )
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.executemany(
-        f"INSERT INTO lineups ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})",
-        [(lineup.team_id, lineup.period_id, lineup.effective_date, *(p[c] for c in COLUMNS[3:])) for p in players],
+        f"INSERT INTO lineups ({', '.join(COLUMNS)}, captured_at) VALUES ({', '.join('?' * (len(COLUMNS) + 1))})",
+        [
+            (lineup.team_id, lineup.period_id, lineup.effective_date, *(p[c] for c in COLUMNS[3:]), captured_at)
+            for p in players
+        ],
     )
     return lineup, len(players)
 

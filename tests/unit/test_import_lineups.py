@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,29 @@ def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(
     assert ids["Liam Hicks"] == "hicksli01"
     assert ids["Michael Harris II"] == "harrimi04"  # CBS adds the suffix the map drops
     assert ids["Bubba Chandler"] is None
+
+
+def test_import_lineup_records_when_it_was_captured_apart_from_the_effective_date(tmp_path):
+    conn = make_db(tmp_path / "t.db")
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+
+    import_lineups.import_lineup(path, conn)
+
+    dates = conn.execute("SELECT DISTINCT effective_date, captured_at FROM lineups").fetchall()
+    assert len(dates) == 1
+    effective, captured = dates[0]
+    assert effective == "2026-09-28"
+    assert datetime.fromisoformat(captured).utcoffset() == timedelta(0)
+    assert abs(datetime.now(timezone.utc) - datetime.fromisoformat(captured)) < timedelta(minutes=1)
+
+
+def test_ensure_schema_adds_captured_at_to_an_existing_lineups_table():
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(import_lineups.SCHEMA)
+    conn.execute("ALTER TABLE lineups DROP COLUMN captured_at")
+    import_lineups.ensure_schema(conn)
+    assert "captured_at" in [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
 
 
 def test_ensure_schema_rebuilds_a_lineups_table_without_player_ids():

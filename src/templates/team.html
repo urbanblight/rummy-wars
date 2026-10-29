@@ -28,7 +28,7 @@
         <div>
           <p class="panel-kicker">ROSTER EVALUATOR</p>
           <h2 id="evaluate-title">Check this lineup</h2>
-          <p class="muted">Evaluate the lineup as of {{ lineup.effective_date }} against the league's roster limits and player eligibility rules, just like an uploaded roster.</p>
+          <p class="muted">Evaluate the lineup as of {{ lineup_as_of(lineup) }} against the league's roster limits and player eligibility rules, just like an uploaded roster.</p>
         </div>
         <form id="evaluate-form" action="{{ url_for('evaluate_team', team_id=team.id) }}" method="post">
           <button type="submit">Evaluate lineup <span aria-hidden="true">→</span></button>
@@ -39,7 +39,8 @@
     <section class="roster-section" aria-labelledby="roster-title">
       <h2 id="roster-title">Players</h2>
       <div class="roster-meta">
-        {% if lineup %}<p class="muted">Lineup as of {{ lineup.effective_date }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>{% endif %}
+        {% if lineup %}<p class="muted">Lineup as of {{ lineup_as_of(lineup) }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>{% endif %}
+        {% if is_admin %}
         <form id="stats-source-form" method="get" action="{{ url_for('team', team_id=team.id) }}">
           <select class="stats-source" name="stats" aria-label="Stats source">
             <option value=""{% if not stat_source %} selected{% endif %}>Season to Date</option>
@@ -47,6 +48,7 @@
           </select>
           <noscript><button type="submit">Show stats</button></noscript>
         </form>
+        {% endif %}
       </div>
       {% if lineup %}
         {% set all_players = batters + pitchers %}
