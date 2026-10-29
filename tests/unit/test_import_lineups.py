@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 import import_lineups  # noqa: E402
+import import_players  # noqa: E402
 
 LINEUP = '''Batters
 ,Pos,Players, 0/0- 0/0,Proj,Actual,Rost,Start,BA,R,HR,RBI,SB,
@@ -39,7 +40,13 @@ def make_db(path):
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
     conn.executemany("INSERT INTO teams VALUES (?, ?)", [(7, "The Outfield"), (8, "Wheatus")])
-    conn.executescript(import_lineups.SCHEMA)
+    conn.executescript(import_players.SCHEMA)
+    conn.execute(
+        "INSERT INTO players (player_id, name, cbs_name, team, pos, active) VALUES "
+        "('hicksli01', 'Liam Hicks', 'Liam Hicks', 'TB', 'C', 1), "
+        "('harrimi04', 'Michael Harris II', 'Michael Harris', 'ATL', 'OF', 1)"
+    )
+    import_lineups.ensure_schema(conn)
     return conn
 
 
@@ -70,7 +77,7 @@ def test_parse_lineup_reads_every_player_with_type_status_and_slot():
     ]
     assert [p["slot_order"] for p in players] == list(range(1, 8))
     hicks = players[0]
-    assert (hicks["positions"], hicks["mlb_team"], hicks["norm_name"]) == ("C,1B", "TB", "liam hicks")
+    assert (hicks["positions"], hicks["mlb_team"]) == ("C,1B", "TB")
     assert (hicks["proj_rank"], hicks["actual_rank"], hicks["rostered_pct"], hicks["started_pct"]) == (452, 102, 94.0, 77.0)
     assert players[5]["positions"] == "SP,RP"
 
@@ -101,6 +108,35 @@ def test_import_lineup_replaces_the_same_lineup_and_keeps_others(tmp_path):
 
     rows = conn.execute("SELECT team_id, period_id, COUNT(*) FROM lineups GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
     assert rows == [(7, None, 7), (7, 12, 7), (8, None, 7)]
+
+
+def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(tmp_path):
+    conn = make_db(tmp_path / "t.db")
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+
+    import_lineups.import_lineup(path, conn)
+
+    ids = dict(conn.execute("SELECT name, player_id FROM lineups"))
+    assert ids["Liam Hicks"] == "hicksli01"
+    assert ids["Michael Harris II"] == "harrimi04"  # CBS adds the suffix the map drops
+    assert ids["Bubba Chandler"] is None
+
+
+def test_ensure_schema_rebuilds_a_lineups_table_without_player_ids():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE lineups (norm_name TEXT)")
+    import_lineups.ensure_schema(conn)
+    assert "player_id" in [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
+
+
+def test_import_lineup_needs_the_players_table(tmp_path):
+    conn = sqlite3.connect(tmp_path / "t.db")
+    conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+    with pytest.raises(RuntimeError, match="import_players"):
+        import_lineups.import_lineup(path, conn)
 
 
 def test_import_lineup_requires_a_known_team(tmp_path):

@@ -5,8 +5,9 @@ Usage:
 
 Reads ``<data-dir>/<year>/stats-batting.csv`` and ``stats-pitching.csv`` and
 (re)creates the ``batting`` and ``pitching`` tables in the database (run
-``import_teams.py`` first; each row's owner is stored as ``team_id``, NULL for
-free agents), including
+``import_teams.py`` and ``import_players.py`` first; each row's owner is stored as
+``team_id``, NULL for free agents, and each player as the canonical ``player_id``
+from the ``players`` table, NULL, with a warning, for names the ID map does not know), including
 z-score and z-score rank columns for the league scoring categories (see
 ``zscores.save_z_scores``). Re-run after changing the scoring categories.
 
@@ -32,7 +33,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 import calculate_sgp  # noqa: E402
 import zscores  # noqa: E402
 from import_teams import normalize_team_name  # noqa: E402
-from zscores import normalize_name  # noqa: E402
+from player_ids import PlayerIndex, normalize_name  # noqa: E402
 
 load_dotenv(REPO_ROOT / ".env", override=False)
 
@@ -54,7 +55,13 @@ def load_team_ids(db_path: Path) -> dict[str, int]:
     return {normalize_team_name(name): team_id for team_id, name in rows}
 
 
-def load_csv(path: Path, team_ids: dict[str, int]) -> pd.DataFrame:
+def load_player_index(db_path: Path) -> PlayerIndex:
+    """Index the players table (run import_players.py first)."""
+    with sqlite3.connect(db_path) as conn:
+        return PlayerIndex.load(conn)
+
+
+def load_csv(path: Path, team_ids: dict[str, int], index: PlayerIndex, player_type: str) -> pd.DataFrame:
     df = pd.read_csv(path, skiprows=1, index_col=False)
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
     df = df[df["Player"].notna()].copy()  # drops the trailing "Report Updated" row
@@ -62,21 +69,26 @@ def load_csv(path: Path, team_ids: dict[str, int]) -> pd.DataFrame:
     df["name"] = parsed[0].fillna(df["Player"].str.strip())
     df["positions"] = parsed[1].fillna("")
     df["team"] = parsed[2].fillna("UNKNOWN")
-    df["norm_name"] = df["name"].map(normalize_name)
+    df["player_id"] = [index.resolve(n, t, player_type) for n, t in zip(df["name"], df["team"])]
+    unmatched = df.loc[df["player_id"].isna(), "name"]
+    if len(unmatched):
+        print(f"Warning: no player id for {len(unmatched)} {player_type.lower()}s, e.g. {unmatched.head(5).tolist()}", file=sys.stderr)
     # Free agents (and anything not in the teams table) get a NULL team_id.
     df["team_id"] = df["Avail"].fillna("").map(lambda n: team_ids.get(normalize_team_name(n))).astype("Int64")
     unknown = sorted(set(df.loc[df["team_id"].isna() & (df["Avail"] != "FA"), "Avail"].dropna()))
     if unknown:
         print(f"Warning: no matching team for {unknown}", file=sys.stderr)
     df = df.rename(columns={"Rank": "rank"}).drop(columns=["Player", "Avail"])
-    df = df.sort_values("rank").drop_duplicates(subset=["norm_name", "team"], keep="first")
+    df["_key"] = df["player_id"].fillna(df["name"].map(normalize_name))
+    df = df.sort_values("rank").drop_duplicates(subset=["_key", "team"], keep="first").drop(columns="_key")
     return df.reset_index(drop=True)
 
 
 def import_stats(year: str, data_dir: Path, db_path: Path) -> dict[str, int]:
     team_ids = load_team_ids(db_path)
-    batting = load_csv(data_dir / year / "stats-batting.csv", team_ids)
-    pitching = load_csv(data_dir / year / "stats-pitching.csv", team_ids)
+    index = load_player_index(db_path)
+    batting = load_csv(data_dir / year / "stats-batting.csv", team_ids, index, "Batter")
+    pitching = load_csv(data_dir / year / "stats-pitching.csv", team_ids, index, "Pitcher")
     pitching["INNs"] = pitching["INNs"].map(innings_to_float)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,8 +101,8 @@ def import_stats(year: str, data_dir: Path, db_path: Path) -> dict[str, int]:
         print(f"Warning: SGP factors not updated ({error})", file=sys.stderr)
     zscores.save_z_scores(db_path)
     with sqlite3.connect(db_path) as conn:
-        conn.execute("CREATE INDEX idx_batting_name ON batting (norm_name)")
-        conn.execute("CREATE INDEX idx_pitching_name ON pitching (norm_name)")
+        conn.execute("CREATE INDEX idx_batting_player ON batting (player_id)")
+        conn.execute("CREATE INDEX idx_pitching_player ON pitching (player_id)")
     return {"batting": len(batting), "pitching": len(pitching)}
 
 

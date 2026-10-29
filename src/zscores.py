@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,8 +12,10 @@ import pandas as pd
 
 try:
     from . import models
+    from .player_ids import PlayerIndex, normalize_name
 except ImportError:  # pragma: no cover - supports direct module imports
     import models
+    from player_ids import PlayerIndex, normalize_name
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "stats.db"
 POOL_SIZE = 250
@@ -164,19 +165,19 @@ def standings_innings(conn: sqlite3.Connection) -> float | None:
 def latest_active_lineups(conn: sqlite3.Connection) -> pd.DataFrame | None:
     """Players in each team's active slots in its most recent imported lineup, or None.
 
-    Columns: ``team_id``, ``norm_name``, ``player_type`` and ``slot``. Needs the ``lineups``
+    Columns: ``team_id``, ``player_id``, ``player_type`` and ``slot``. Needs the ``lineups``
     table from ``scripts/import_lineups.py``.
     """
     try:
         lineups = pd.read_sql_query(
             """
-            SELECT l.team_id, l.norm_name, l.player_type, l.slot
+            SELECT l.team_id, l.player_id, l.player_type, l.slot
             FROM lineups l
             JOIN (SELECT team_id, MAX(effective_date || printf('%06d', IFNULL(period_id, 0))) AS latest
                   FROM lineups GROUP BY team_id) m
               ON m.team_id = l.team_id
              AND l.effective_date || printf('%06d', IFNULL(l.period_id, 0)) = m.latest
-            WHERE l.status = 'Active'
+            WHERE l.status = 'Active' AND l.player_id IS NOT NULL
             """,
             conn,
         )
@@ -197,15 +198,15 @@ def lineup_slot_counts(lineups: pd.DataFrame | None, player_type: str) -> dict[s
 def active_lineup_volume(df: pd.DataFrame, lineups: pd.DataFrame, player_type: str) -> float | None:
     """Average, across teams, of the playing time of the players in a team's active slots.
 
-    Players are matched to the stats table by fantasy team and name. Returns None when
+    Players are matched to the stats table by fantasy team and player id. Returns None when
     no active player of that type can be matched.
     """
     playing_time = PLAYING_TIME_COLUMN[player_type]
-    active = lineups[lineups["player_type"] == player_type][["team_id", "norm_name"]].astype({"team_id": "Int64"})
+    active = lineups[lineups["player_type"] == player_type][["team_id", "player_id"]].astype({"team_id": "Int64"})
     if active.empty:
         return None
-    stats = df[df["team_id"].notna()][["team_id", "norm_name", playing_time]].astype({"team_id": "Int64"})
-    matched = active.merge(stats, on=["team_id", "norm_name"])
+    stats = df[df["team_id"].notna() & df["player_id"].notna()][["team_id", "player_id", playing_time]].astype({"team_id": "Int64"})
+    matched = active.merge(stats, on=["team_id", "player_id"])
     if matched.empty:
         return None
     return float(matched.groupby("team_id")[playing_time].sum().mean())
@@ -220,7 +221,7 @@ def roster_coverage(conn: sqlite3.Connection, lineups: pd.DataFrame) -> float:
     """
     try:
         innings = standings_innings(conn)
-        pitching = pd.read_sql_query("SELECT team_id, norm_name, INNs FROM pitching", conn)
+        pitching = pd.read_sql_query("SELECT team_id, player_id, INNs FROM pitching", conn)
     except (sqlite3.OperationalError, pd.errors.DatabaseError):
         return 1.0
     active = active_lineup_volume(pitching, lineups, "Pitcher")
@@ -471,12 +472,6 @@ def save_z_scores(db_path: str | Path) -> None:
             df.to_sql(table, conn, if_exists="replace", index=False)
 
 
-def normalize_name(name: str) -> str:
-    """Lowercase, accent-free, punctuation-free name used to match players."""
-    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9 ]", "", ascii_name.lower().replace("-", " ")).strip()
-
-
 def scoring_stat(row: sqlite3.Row, cat: str, columns: dict[str, str]) -> float | None:
     """A player's raw value in one scoring category, derived like ``_add_category``."""
     if cat == "W+QS":
@@ -561,6 +556,13 @@ def _read_table(conn: sqlite3.Connection, table: str, where: str = "", params: t
         return None
 
 
+def _player_index(conn: sqlite3.Connection) -> PlayerIndex:
+    try:
+        return PlayerIndex.load(conn)
+    except RuntimeError:  # no players table: nothing can be matched
+        return PlayerIndex([])
+
+
 def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None) -> None:
     """Attach the stored z-scores, SGP and ranks to each rostered player in place.
 
@@ -571,6 +573,7 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
     db_path = stats_db_path(db_path)
     if not db_path.exists():
         return
+    index: PlayerIndex | None = None
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         for player_type, (table, _columns) in TABLES.items():
@@ -579,13 +582,18 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
                 continue
             rows = _read_table(conn, table)
             context = _score_context(rows, player_type) if rows is not None else None
-            if context is None:
-                continue
-            by_name: dict[str, list[sqlite3.Row]] = {}
+            if context is None or (rows and "player_id" not in rows[0].keys()):
+                continue  # stats imported before player ids existed; re-run scripts/refresh.py
+            by_id: dict[str, list[sqlite3.Row]] = {}
             for row in rows:
-                by_name.setdefault(row["norm_name"], []).append(row)
+                if row["player_id"] is not None:
+                    by_id.setdefault(row["player_id"], []).append(row)
             for player in players:
-                matches = by_name.get(normalize_name(player.name), [])
+                if player.player_id is None:  # e.g. an uploaded CBS roster, which only has names
+                    if index is None:
+                        index = _player_index(conn)
+                    player.player_id = index.resolve(player.name, player.team, player_type)
+                matches = by_id.get(player.player_id, [])
                 same_team = [r for r in matches if r["team"] == player.team]
                 matches = same_team or matches
                 if matches:
@@ -625,6 +633,7 @@ def load_team_lineup(
     roster = models.TeamRoster(players=[
         models.Player(
             name=row["name"],
+            player_id=row["player_id"],
             roster_slot=row["slot"],
             eligible_positions=[p.strip() for p in row["positions"].split(",") if p.strip()],
             team=row["mlb_team"],
@@ -681,6 +690,7 @@ def load_players(
                     continue
                 player = models.Player(
                     name=row["name"],
+                    player_id=row["player_id"],
                     roster_slot="",
                     eligible_positions=[p.strip() for p in (row["positions"] or "").split(",") if p.strip()],
                     team=row["team"],

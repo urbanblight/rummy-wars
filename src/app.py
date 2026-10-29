@@ -13,9 +13,10 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 try:
-    from . import league, utils, zscores
+    from . import league, projections, utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
     import league
+    import projections
     import utils
     import zscores
 
@@ -147,9 +148,15 @@ def team(team_id: int):
         abort(404)
     snapshot, _teams = league.league_teams()
     lineup, players = zscores.load_team_roster(team_id)
+    sources = projections.systems()
+    source = next((s for s in sources if s["key"] == request.args.get("stats")), None)
+    if source:
+        for player_type, group in players.items():
+            projections.apply_stats(group, player_type, source["system"], source["season"])
     return render_template(
         "team.html", team=found, snapshot=snapshot, lineup=lineup,
         batters=players["Batter"], pitchers=players["Pitcher"], offseason=MODE == "offseason",
+        stat_sources=sources, stat_source=source["key"] if source else "",
     )
 
 

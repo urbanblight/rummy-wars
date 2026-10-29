@@ -1119,3 +1119,24 @@ td.num .neg {
 #news-modal-list small {
   color: var(--navy);
 }
+
+.stats-source {
+  margin-left: 8px;
+  padding: 4px 8px;
+  color: var(--ink);
+  background: var(--panel-dark);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.stats-source:hover,
+.stats-source:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

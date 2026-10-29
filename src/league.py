@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - supports direct module imports
 def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
     """Team id -> total SGP vs replacement of the players active in the team's latest lineup.
 
-    Players are matched to the batting and pitching tables by fantasy team and name; an
+    Players are matched to the batting and pitching tables by fantasy team and player id; an
     active player without a score adds nothing. Teams without an imported lineup are absent.
     """
     lineups = zscores.latest_active_lineups(conn)
@@ -26,13 +26,13 @@ def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
     for player_type, (table, _columns) in zscores.TABLES.items():
         try:
             scores = pd.read_sql_query(
-                f"SELECT team_id, norm_name, sgp_total_above_replacement AS vr FROM {table} WHERE team_id IS NOT NULL",  # noqa: S608
+                f"SELECT team_id, player_id, sgp_total_above_replacement AS vr FROM {table} WHERE team_id IS NOT NULL AND player_id IS NOT NULL",  # noqa: S608
                 conn,
             )
         except (sqlite3.OperationalError, pd.errors.DatabaseError):
             continue
-        active = lineups[lineups["player_type"] == player_type][["team_id", "norm_name"]]
-        matched = active.astype({"team_id": "Int64"}).merge(scores.astype({"team_id": "Int64"}), on=["team_id", "norm_name"])
+        active = lineups[lineups["player_type"] == player_type][["team_id", "player_id"]]
+        matched = active.astype({"team_id": "Int64"}).merge(scores.astype({"team_id": "Int64"}), on=["team_id", "player_id"])
         totals = totals.add(matched.groupby("team_id")["vr"].sum(), fill_value=0.0)
     return {int(team_id): float(total) for team_id, total in totals.items()}
 

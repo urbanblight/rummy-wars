@@ -1,8 +1,12 @@
 {# Shared player list pieces: a table of scored players and the advanced stats modal that goes with it. #}
-{% macro player_table(players, show_roster=True, notices=none) %}
+{% macro player_table(players, show_roster=True, notices=none, stat_sources=none, stat_source="") %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats</th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">CBS</th><th class="num">Rank</th><th class="num">SGP VR</th>{% if show_roster %}<th>Slot</th>{% endif %}<th>Team</th><th>Stats{% if stat_sources %}
+        <select class="stats-source" name="stats" form="stats-source-form" aria-label="Stats source">
+          <option value=""{% if not stat_source %} selected{% endif %}>Season to Date</option>
+          {% for source in stat_sources %}<option value="{{ source.key }}"{% if source.key == stat_source %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
+        </select>{% endif %}</th></tr></thead>
       <tbody>
         {% for player in players %}
           <tr>
@@ -21,11 +25,11 @@
   </div>
 {% endmacro %}
 
-{% macro status_accordion(players, player_type, status, title, notices=none) %}
+{% macro status_accordion(players, player_type, status, title, notices=none, stat_sources=none, stat_source="") %}
   {% if players %}
     <details class="roster-accordion" data-player-type="{{ player_type }}" data-status="{{ status }}">
       <summary>{{ title }} ({{ players|length }})</summary>
-      {{ player_table(players, notices=notices) }}
+      {{ player_table(players, notices=notices, stat_sources=stat_sources, stat_source=stat_source) }}
     </details>
   {% endif %}
 {% endmacro %}

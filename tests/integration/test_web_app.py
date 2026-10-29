@@ -84,6 +84,37 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertIn("Active SGP VR", text)
         self.assertIn("+42.50", text)
 
+    def test_team_page_stats_dropdown_switches_to_a_projection_system(self):
+        """The Stats header offers Season to Date plus each projection system and applies the chosen one."""
+        team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}
+        snapshot = {"season_year": 2026, "as_of_date": "2026-12-31"}
+        sources = [{"key": "ZIPS-2027", "label": "ZIPS 2027", "system": "ZIPS", "season": 2027}]
+
+        def roster(_team_id):
+            batter = models.Player(
+                name="Test Batter", roster_slot="", eligible_positions=["C"], team="HOU", status="", player_type="Batter",
+                scoring_stats={"HR": 20.0}, player_id="a1",
+            )
+            return None, {"Batter": [batter], "Pitcher": []}
+
+        with patch("app.league.get_team", return_value=team), \
+                patch("app.league.league_teams", return_value=(snapshot, [team])), \
+                patch("app.projections.systems", return_value=sources), \
+                patch("app.projections.load_stats", return_value={"a1": {"HR": 38.0}}), \
+                patch("app.zscores.load_team_roster", side_effect=roster):
+            current = self.client.get("/teams/7").get_data(as_text=True)
+            projected = self.client.get("/teams/7?stats=ZIPS-2027").get_data(as_text=True)
+            unknown = self.client.get("/teams/7?stats=Nope-1999").get_data(as_text=True)
+
+        self.assertIn('name="stats" form="stats-source-form"', current)
+        self.assertIn("Season to Date", current)
+        self.assertIn('<option value="ZIPS-2027">ZIPS 2027</option>', current)
+        self.assertIn("HR&nbsp;20", current)
+        self.assertIn('<option value="ZIPS-2027" selected>ZIPS 2027</option>', projected)
+        self.assertIn("HR&nbsp;38", projected)
+        self.assertNotIn("HR&nbsp;20", projected)
+        self.assertIn("HR&nbsp;20", unknown)
+
     def test_team_page_lists_the_teams_players_with_the_advanced_modal(self):
         """A team page shows its batters and pitchers using the shared player table."""
         team = {"id": 7, "name": "The Outfield", "abbrev": "YL", "manager": "Matt B", "rank": 1, "total_points": 150.5}

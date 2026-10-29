@@ -37,11 +37,13 @@ def test_save_factors_replaces_stored_factors(tmp_path):
 
 def test_import_lineup_files_imports_the_folder_and_handles_none(tmp_path):
     import import_lineups
+    import import_players
 
     db = tmp_path / "t.db"
     with sqlite3.connect(db) as conn:
         conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
         conn.execute("INSERT INTO teams VALUES (7, 'The Outfield')")
+        conn.executescript(import_players.SCHEMA)
 
     assert refresh.import_lineup_files(tmp_path, db) == 0  # no lineups folder
 

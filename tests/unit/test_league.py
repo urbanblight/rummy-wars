@@ -66,21 +66,21 @@ def test_load_players_returns_a_teams_players_or_the_free_agents_best_first(tmp_
     db = tmp_path / "t.db"
     conn = sqlite3.connect(db)
     conn.execute(
-        "CREATE TABLE batting (name, positions, team, team_id, AB, HR, z_HR, z_total, rank,"
+        "CREATE TABLE batting (name, player_id, positions, team, team_id, AB, HR, z_HR, z_total, rank,"
         " z_HR_rank, z_total_rank, sgp_total_above_replacement, sgp_total_above_replacement_rank,"
         " z_HR_above_replacement, z_total_above_replacement, z_HR_above_replacement_rank,"
         " z_total_above_replacement_rank, sgp_HR_above_replacement, sgp_HR_above_replacement_rank,"
         " sgp_HR, sgp_total, sgp_HR_rank, sgp_total_rank)"
     )
     conn.executemany(
-        "INSERT INTO batting VALUES (?, ?, 'NYY', ?, ?, ?, 1.0, 1.0, ?, 1, 1, ?, ?,"
+        "INSERT INTO batting VALUES (?, ?, ?, 'NYY', ?, ?, ?, 1.0, 1.0, ?, 1, 1, ?, ?,"
         " 1.0, 1.0, 1, 1, 1.0, 1, 1.0, 1.0, 1, 1)",
         [
-            ("Owned Low", "C,1B", 7, 100, 5, 9999, -1.0, 9),
-            ("Owned High", "SS", 7, 100, 30, 12, 4.0, 2),
-            ("Free Agent", "LF", None, 100, 12, 80, 1.0, 5),
-            ("Free Agent No AB", "LF", None, 0, 0, 300, None, None),
-            ("Other Team", "RF", 8, 100, 20, 40, 2.0, 3),
+            ("Owned Low", "owned low", "C,1B", 7, 100, 5, 9999, -1.0, 9),
+            ("Owned High", "owned high", "SS", 7, 100, 30, 12, 4.0, 2),
+            ("Free Agent", "free agent", "LF", None, 100, 12, 80, 1.0, 5),
+            ("Free Agent No AB", "free agent no ab", "LF", None, 0, 0, 300, None, None),
+            ("Other Team", "other team", "RF", 8, 100, 20, 40, 2.0, 3),
         ],
     )
     conn.commit()
@@ -104,15 +104,15 @@ def test_load_team_roster_follows_the_latest_lineup_order_and_attaches_scores(tm
     monkeypatch.setenv("PITCHING_SCORING_CATEGORIES", "INN")
     db = tmp_path / "t.db"
     conn = sqlite3.connect(db)
-    conn.executescript(import_lineups.SCHEMA)
+    import_lineups.ensure_schema(conn)
     scored = ["HR", "total"]
-    columns = ["name", "norm_name", "positions", "team", "team_id", "AB", "HR", "rank"]
+    columns = ["name", "player_id", "positions", "team", "team_id", "AB", "HR", "rank"]
     for kind in ("z", "sgp"):
         for name in scored:
             columns += [f"{kind}_{name}", f"{kind}_{name}_rank", f"{kind}_{name}_above_replacement", f"{kind}_{name}_above_replacement_rank"]
     conn.execute(f"CREATE TABLE batting ({', '.join(columns)})")
     for name, norm, hr, vr, vr_rank in (("Bench Bat", "bench bat", 3, -2.0, 9), ("Slot Bat", "slot bat", 30, 4.0, 1)):
-        values = {"name": name, "norm_name": norm, "positions": "1B", "team": "TB", "team_id": 7, "AB": 100, "HR": hr, "rank": 5}
+        values = {"name": name, "player_id": norm, "positions": "1B", "team": "TB", "team_id": 7, "AB": 100, "HR": hr, "rank": 5}
         for kind in ("z", "sgp"):
             for stat in scored:
                 values.update({
@@ -121,10 +121,10 @@ def test_load_team_roster_follows_the_latest_lineup_order_and_attaches_scores(tm
                 })
         conn.execute(f"INSERT INTO batting ({', '.join(values)}) VALUES ({', '.join('?' * len(values))})", list(values.values()))
     lineup = [
-        (7, None, "2026-06-01", 1, "Batter", "Active", "C", "Old Bat", "old bat", "C", "TB", None, None, None, None),
-        (7, None, "2026-09-28", 1, "Batter", "Active", "DH", "Slot Bat", "slot bat", "1B,LF", "TB", None, None, None, None),
-        (7, None, "2026-09-28", 2, "Batter", "Reserves", "1B", "Bench Bat", "bench bat", "1B", "TB", None, None, None, None),
-        (7, None, "2026-09-28", 3, "Batter", "Minors", "SS", "No Stats Kid", "no stats kid", "SS", "TB", None, None, None, None),
+        (7, None, "2026-06-01", 1, "Batter", "Active", "C", "old bat", "Old Bat", "C", "TB", None, None, None, None),
+        (7, None, "2026-09-28", 1, "Batter", "Active", "DH", "slot bat", "Slot Bat", "1B,LF", "TB", None, None, None, None),
+        (7, None, "2026-09-28", 2, "Batter", "Reserves", "1B", "bench bat", "Bench Bat", "1B", "TB", None, None, None, None),
+        (7, None, "2026-09-28", 3, "Batter", "Minors", "SS", "no stats kid", "No Stats Kid", "SS", "TB", None, None, None, None),
     ]
     conn.executemany(f"INSERT INTO lineups VALUES ({', '.join('?' * 15)})", lineup)
     conn.commit()
@@ -156,23 +156,23 @@ def test_active_sgp_vr_sums_only_the_players_active_in_each_teams_latest_lineup(
     db = tmp_path / "t.db"
     make_db(db)
     conn = sqlite3.connect(db)
-    conn.executescript(import_lineups.SCHEMA)
+    import_lineups.ensure_schema(conn)
     conn.executescript(
         """
-        CREATE TABLE batting (team_id, norm_name, sgp_total_above_replacement);
-        CREATE TABLE pitching (team_id, norm_name, sgp_total_above_replacement);
+        CREATE TABLE batting (team_id, player_id, sgp_total_above_replacement);
+        CREATE TABLE pitching (team_id, player_id, sgp_total_above_replacement);
         INSERT INTO batting VALUES (1, 'old bat', 100.0), (1, 'bat a', 5.0), (1, 'bench bat', 50.0), (2, 'bat b', -3.0), (2, 'unscored', NULL);
         INSERT INTO pitching VALUES (1, 'arm a', 2.5), (2, 'arm b', 1.0);
         """
     )
     rows = [
-        (1, None, "2026-06-01", 1, "Batter", "Active", "C", "Old Bat", "old bat", "C", "TB", None, None, None, None),
-        (1, None, "2026-09-28", 1, "Batter", "Active", "C", "Bat A", "bat a", "C", "TB", None, None, None, None),
-        (1, None, "2026-09-28", 2, "Batter", "Reserves", "1B", "Bench Bat", "bench bat", "1B", "TB", None, None, None, None),
-        (1, None, "2026-09-28", 3, "Pitcher", "Active", "SP", "Arm A", "arm a", "SP", "TB", None, None, None, None),
-        (2, None, "2026-09-28", 1, "Batter", "Active", "C", "Bat B", "bat b", "C", "TB", None, None, None, None),
-        (2, None, "2026-09-28", 2, "Batter", "Active", "1B", "Unscored", "unscored", "1B", "TB", None, None, None, None),
-        (2, None, "2026-09-28", 3, "Pitcher", "Active", "RP", "Arm B", "arm b", "RP", "TB", None, None, None, None),
+        (1, None, "2026-06-01", 1, "Batter", "Active", "C", "old bat", "Old Bat", "C", "TB", None, None, None, None),
+        (1, None, "2026-09-28", 1, "Batter", "Active", "C", "bat a", "Bat A", "C", "TB", None, None, None, None),
+        (1, None, "2026-09-28", 2, "Batter", "Reserves", "1B", "bench bat", "Bench Bat", "1B", "TB", None, None, None, None),
+        (1, None, "2026-09-28", 3, "Pitcher", "Active", "SP", "arm a", "Arm A", "SP", "TB", None, None, None, None),
+        (2, None, "2026-09-28", 1, "Batter", "Active", "C", "bat b", "Bat B", "C", "TB", None, None, None, None),
+        (2, None, "2026-09-28", 2, "Batter", "Active", "1B", "unscored", "Unscored", "1B", "TB", None, None, None, None),
+        (2, None, "2026-09-28", 3, "Pitcher", "Active", "RP", "arm b", "Arm B", "RP", "TB", None, None, None, None),
     ]
     conn.executemany(f"INSERT INTO lineups VALUES ({', '.join('?' * 15)})", rows)
     conn.commit()

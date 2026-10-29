@@ -38,6 +38,9 @@
 
     <section class="roster-section" aria-labelledby="roster-title">
       <h2 id="roster-title">Players</h2>
+      <form id="stats-source-form" method="get" action="{{ url_for('team', team_id=team.id) }}">
+        <noscript><button type="submit">Show stats</button></noscript>
+      </form>
       {% if lineup %}
         <p class="muted">Lineup as of {{ lineup.effective_date }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>
         {% set all_players = batters + pitchers %}
@@ -56,22 +59,22 @@
       {% endif %}
       <section aria-labelledby="batters-title">
         <h3 id="batters-title">Batters ({{ active_batters|length }})</h3>
-        {{ player_table(active_batters, show_roster=lineup is not none) }}
-        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters") }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters") }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters") }}{% endif %}
+        {{ player_table(active_batters, show_roster=lineup is not none, stat_sources=stat_sources, stat_source=stat_source) }}
+        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
       </section>
       <section aria-labelledby="pitchers-title">
         <h3 id="pitchers-title">Pitchers ({{ active_pitchers|length }})</h3>
-        {{ player_table(active_pitchers, show_roster=lineup is not none) }}
-        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers") }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers") }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers") }}{% endif %}
+        {{ player_table(active_pitchers, show_roster=lineup is not none, stat_sources=stat_sources, stat_source=stat_source) }}
+        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers", stat_sources=stat_sources, stat_source=stat_source) }}{% endif %}
       </section>
       {% if lineup and other_players %}
         <section aria-labelledby="other-players-title">
           <h3 id="other-players-title">Other players ({{ other_players|length }})</h3>
-          {{ player_table(other_players) }}
+          {{ player_table(other_players, stat_sources=stat_sources, stat_source=stat_source) }}
         </section>
       {% endif %}
     </section>
@@ -85,6 +88,11 @@
 {% block scripts %}
 {{ advanced_modal_script() }}
 {{ news_modal_script() }}
+<script>
+  document.querySelectorAll('select.stats-source').forEach(function (select) {
+    select.addEventListener('change', function () { select.form.submit(); });
+  });
+</script>
 {% if lineup %}
 <script>
   document.querySelector('#evaluate-form').addEventListener('submit', function (event) {

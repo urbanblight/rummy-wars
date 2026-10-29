@@ -24,13 +24,37 @@ python scripts/refresh.py [--year 2026] [--data-dir data] [--db data/stats.db]
 `refresh.py` runs these steps in order and stops at the first failure:
 
 1. `import_teams.py` loads teams and managers from `data/teams.csv`.
-2. `import_standings.py` loads every `data/standings/<year>.csv` as that season's full-year snapshot. Re-importing replaces the snapshot.
-3. `import_lineups.py` loads every roster-overview file in `data/lineups` (skipped if there are none).
-4. `import_cbs_stats.py` loads the player stats for `--year`. It first recalculates the SGP factors (`calculate_sgp.py`) from the imported standings, then stores the Z-scores, SGP, above-replacement values and ranks.
+2. `import_players.py` upserts the canonical player ID map (SFBB `PLAYERIDMAP`) into the `players` table, from `data/player-id-map.csv` if present, otherwise downloaded. Safe to rerun; lineups and stats store each player's `player_id` from it instead of relying on names.
+3. `import_standings.py` loads every `data/standings/<year>.csv` as that season's full-year snapshot. Re-importing replaces the snapshot.
+4. `import_lineups.py` loads every roster-overview file in `data/lineups` (skipped if there are none).
+5. `import_cbs_stats.py` loads the player stats for `--year`. It first recalculates the SGP factors (`calculate_sgp.py`) from the imported standings, then stores the Z-scores, SGP, above-replacement values and ranks.
 
-Lineups can also be imported on their own with `python scripts/import_lineups.py [path ...]` (default `data/lineups`). The CBS roster-overview files must be named `roster-overview-<team-id>-<date>.csv` for the offseason lineup, or `roster-overview-<team-id>-<period-id>-<date>.csv` in season, with the date as `YYYYMMDD`. Each player becomes a row of the `lineups` table (team, period, effective date, status, slot, name, positions, MLB team, CBS ranks and roster/start percentages), and re-importing a lineup replaces it. Import teams first.
+Lineups can also be imported on their own with `python scripts/import_lineups.py [path ...]` (default `data/lineups`). The CBS roster-overview files must be named `roster-overview-<team-id>-<date>.csv` for the offseason lineup, or `roster-overview-<team-id>-<period-id>-<date>.csv` in season, with the date as `YYYYMMDD`. Each player becomes a row of the `lineups` table (team, period, effective date, status, slot, name, positions, MLB team, CBS ranks and roster/start percentages), and re-importing a lineup replaces it. Import teams and players first. CBS exports carry only names, so each is matched to a `player_id` by name and MLB team; names missing from the ID map (mostly deep minor leaguers) get a NULL `player_id` and a warning.
 
 Each script can also be run on its own, for example `import_standings.py data/standings/2026.csv --as-of 2026-06-01` for an in-season standings snapshot (`refresh.py` only imports full-year files).
+
+### Importing projections
+
+Projection systems (ZiPS, Steamer, ...) are imported separately from `refresh.py`, into the `batting_projections` and `pitching_projections` tables:
+
+```bash
+source .venv/bin/activate
+python scripts/import_players.py                      # once, so projections can be linked to player ids
+python scripts/import_projections.py                  # every file in data/projections
+python scripts/import_projections.py data/projections/ZIPS-2027-batting.csv [--db data/stats.db]
+```
+
+- Put FanGraphs-style CSV exports in `data/projections`, named `<system>-<season>-<batting|pitching>.csv`, for example `ZIPS-2027-batting.csv`. The system, season and table come from the file name; other `.csv` files in the folder are skipped with a warning.
+- Each row stores `system`, `season`, the projected stats and a canonical `player_id`, matched from the export's FanGraphs `PlayerId` (then `MLBAMID`) against the `players` table. Players missing from the ID map (mostly prospects) get a NULL `player_id` and are counted in a warning.
+- On a team page (`/teams/<id>`), the Stats column header has a dropdown: Season to Date (the `batting` / `pitching` tables) or any imported system and season, such as ZIPS 2027, which shows that projection's latest snapshot for each player (`?stats=ZIPS-2027`). Players a system doesn't project, or that have no `player_id`, show no stats.
+- Every run inserts its rows under a new `snapshot` (UTC timestamp), so rerunning or importing a revised file keeps the earlier projections instead of replacing them. To read the latest, filter on the newest snapshot:
+
+```sql
+SELECT * FROM batting_projections
+WHERE system = 'ZIPS' AND season = 2027
+  AND snapshot = (SELECT MAX(snapshot) FROM batting_projections WHERE system = 'ZIPS' AND season = 2027);
+```
+
 
 ### Requirements
 

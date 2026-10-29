@@ -6,11 +6,13 @@ Usage:
 Runs, in order:
 
 1. ``import_teams.py``: teams and managers from ``<data-dir>/teams.csv``.
-2. ``import_standings.py``: every ``<data-dir>/standings/<year>.csv`` as that
+2. ``import_players.py``: the canonical player ID map, from ``<data-dir>/player-id-map.csv``
+   if present, otherwise downloaded (safe to repeat; players are upserted).
+3. ``import_standings.py``: every ``<data-dir>/standings/<year>.csv`` as that
    season's full-year snapshot (safe to repeat; a snapshot is replaced).
-3. ``import_lineups.py``: every roster-overview file in ``<data-dir>/lineups`` (skipped
+4. ``import_lineups.py``: every roster-overview file in ``<data-dir>/lineups`` (skipped
    if the folder is missing or has none; a lineup is replaced when imported again).
-4. ``import_cbs_stats.py``: player stats for ``--year``. This first recalculates
+5. ``import_cbs_stats.py``: player stats for ``--year``. This first recalculates
    the SGP factors from the standings, then stores z-scores, SGP, the
    above-replacement values and their ranks.
 
@@ -26,13 +28,18 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import requests
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import import_cbs_stats  # noqa: E402
 import import_lineups  # noqa: E402
+import import_players  # noqa: E402
 import import_standings  # noqa: E402
 import import_teams  # noqa: E402
+from player_ids import PlayerIndex  # noqa: E402
 
 
 def standings_files(data_dir: Path) -> list[tuple[int, Path]]:
@@ -57,15 +64,20 @@ def import_lineup_files(data_dir: Path, db_path: Path) -> int:
         return 0
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
-        conn.executescript(import_lineups.SCHEMA)
+        import_lineups.ensure_schema(conn)
+        index = PlayerIndex.load(conn)
         for path in files:
-            import_lineups.import_lineup(path, conn)
+            import_lineups.import_lineup(path, conn, index)
     return len(files)
 
 
 def refresh(year: str, data_dir: Path, db_path: Path) -> None:
     count = import_teams.import_teams(data_dir / "teams.csv", db_path)
     print(f"Teams: imported {count} teams")
+
+    players_csv = data_dir / "player-id-map.csv"
+    source = players_csv if players_csv.exists() else import_players.DEFAULT_SOURCE
+    print(f"Players: imported {import_players.import_players(source, db_path)} players")
 
     for season, path in standings_files(data_dir):
         teams, rows = import_standings.import_standings(path, db_path, season, f"{season}-12-31")
@@ -89,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, RuntimeError, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, OSError, requests.RequestException, sqlite3.Error) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     print(f"Refreshed {args.db}")

@@ -24,6 +24,7 @@ class Player:
     status: str             # 'Active', 'Reserves', 'Injured', 'Minors'
     player_type: str        # 'Batter' or 'Pitcher'
     stats: dict[str, float | None] = field(default_factory=dict)
+    player_id: str | None = None  # canonical id from the players table; None until resolved
     # Season values for the league's scoring categories, from the stats database.
     scoring_stats: dict[str, float | None] = field(default_factory=dict)
     cbs_rank: int | None = None  # CBS's own player rank; None if CBS leaves the player unranked

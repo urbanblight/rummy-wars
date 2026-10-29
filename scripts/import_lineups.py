@@ -10,8 +10,10 @@ named after the lineup they hold:
 * ``roster-overview-<team-id>-<date>.csv`` for the offseason lineup, or
 * ``roster-overview-<team-id>-<period-id>-<date>.csv`` for an in-season lineup,
 
-where ``<date>`` is the effective date as YYYYMMDD. Run ``import_teams.py`` first, since
-each lineup belongs to a team. Every player in a file becomes one row of the ``lineups``
+where ``<date>`` is the effective date as YYYYMMDD. Run ``import_teams.py`` and
+``import_players.py`` first, since each lineup belongs to a team and each player is
+stored by canonical ``player_id`` (NULL, with a warning, for a name the ID map does not
+know). Every player in a file becomes one row of the ``lineups``
 table, keyed by team, period (NULL for the offseason), effective date and ``slot_order``
 (the player's order in the file). Importing a lineup again replaces its rows. Files in a
 folder whose names do not match are skipped with a warning.
@@ -37,7 +39,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from import_cbs_stats import PLAYER_PATTERN  # noqa: E402
-from zscores import normalize_name  # noqa: E402
+from player_ids import PlayerIndex  # noqa: E402
 
 DEFAULT_DIR = REPO_ROOT / "data" / "lineups"
 FILE_PATTERN = re.compile(r"^roster-overview-(\d+)(?:-(\d+))?-(\d{8})\.csv$")
@@ -56,8 +58,8 @@ CREATE TABLE IF NOT EXISTS lineups (
     player_type TEXT NOT NULL CHECK (player_type IN ('Batter', 'Pitcher')),
     status TEXT NOT NULL CHECK (status IN ('Active', 'Reserves', 'Injured', 'Minors')),
     slot TEXT NOT NULL,
+    player_id TEXT REFERENCES players(player_id),
     name TEXT NOT NULL,
-    norm_name TEXT NOT NULL,
     positions TEXT NOT NULL,
     mlb_team TEXT NOT NULL,
     proj_rank INTEGER,
@@ -67,12 +69,12 @@ CREATE TABLE IF NOT EXISTS lineups (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_lineups_slot
     ON lineups (team_id, IFNULL(period_id, -1), effective_date, slot_order);
-CREATE INDEX IF NOT EXISTS idx_lineups_player ON lineups (norm_name, mlb_team);
+CREATE INDEX IF NOT EXISTS idx_lineups_player ON lineups (player_id);
 """
 
 COLUMNS = (
     "team_id", "period_id", "effective_date", "slot_order", "player_type", "status", "slot",
-    "name", "norm_name", "positions", "mlb_team", "proj_rank", "actual_rank", "rostered_pct", "started_pct",
+    "player_id", "name", "positions", "mlb_team", "proj_rank", "actual_rank", "rostered_pct", "started_pct",
 )
 
 
@@ -136,7 +138,6 @@ def parse_lineup(text: str) -> list[dict]:
             "status": status,
             "slot": fields[1].strip(),
             "name": name,
-            "norm_name": normalize_name(name),
             "positions": positions,
             "mlb_team": mlb_team,
             "proj_rank": _number(fields[4], int),
@@ -149,12 +150,25 @@ def parse_lineup(text: str) -> list[dict]:
     return players
 
 
-def import_lineup(path: Path, conn: sqlite3.Connection) -> tuple[LineupFile, int]:
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create the lineups table, rebuilding one that predates ``player_id`` (it is re-importable)."""
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
+    if columns and "player_id" not in columns:
+        conn.execute("DROP TABLE lineups")
+    conn.executescript(SCHEMA)
+
+
+def import_lineup(path: Path, conn: sqlite3.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
     """Replace one lineup's rows with the contents of ``path``; returns (lineup, players)."""
+    index = index or PlayerIndex.load(conn)
     lineup = parse_filename(path.name)
     if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (lineup.team_id,)).fetchone():
         raise ValueError(f"{path.name}: no team with id {lineup.team_id}; run scripts/import_teams.py first")
     players = parse_lineup(path.read_text(encoding="utf-8-sig"))
+    for player in players:
+        player["player_id"] = index.resolve(player["name"], player["mlb_team"], player["player_type"])
+        if player["player_id"] is None:
+            print(f"Warning: {path.name}: no player id for {player['name']} ({player['mlb_team']})", file=sys.stderr)
     conn.execute(
         "DELETE FROM lineups WHERE team_id = ? AND period_id IS ? AND effective_date = ?",
         (lineup.team_id, lineup.period_id, lineup.effective_date),
@@ -195,16 +209,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with sqlite3.connect(args.db) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
-            conn.executescript(SCHEMA)
+            ensure_schema(conn)
+            index = PlayerIndex.load(conn)
             for path in files:
-                lineup, count = import_lineup(path, conn)
+                lineup, count = import_lineup(path, conn, index)
                 period = f"period {lineup.period_id}" if lineup.period_id is not None else "offseason"
                 print(f"Team {lineup.team_id} ({period}, {lineup.effective_date}): {count} players")
                 imported += 1
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, sqlite3.Error) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     print(f"Imported {imported} lineups into {args.db}")
