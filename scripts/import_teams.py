@@ -1,7 +1,7 @@
-"""Import the league's fantasy teams from ``data/teams.csv`` into a sqlite database.
+"""Import the league's fantasy teams from ``data/teams.csv`` into the MySQL database.
 
 Usage:
-    python scripts/import_teams.py [--csv data/teams.csv] [--db data/stats.db]
+    python scripts/import_teams.py [--csv data/teams.csv]
 
 Upserts the ``managers`` (matched by name, case-insensitively) and ``teams``
 tables. Each team gets an integer ``id`` (1, 2, 4, 5... in file order, matching the
@@ -14,13 +14,15 @@ stores these ids in the batting and pitching tables.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from pathlib import Path
 
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import db  # noqa: E402
 
 COLUMNS = {
     "TEAM NAME": "name",
@@ -55,49 +57,50 @@ def load_teams(csv_path: Path) -> pd.DataFrame:
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS managers (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    email TEXT
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    email VARCHAR(255)
 );
 CREATE TABLE IF NOT EXISTS teams (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    abbrev TEXT,
-    manager_id INTEGER NOT NULL REFERENCES managers(id)
+    id INT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    abbrev VARCHAR(32),
+    manager_id INT NOT NULL,
+    FOREIGN KEY (manager_id) REFERENCES managers (id)
 );
 CREATE TABLE IF NOT EXISTS teams_history (
-    team_id INTEGER NOT NULL REFERENCES teams(id),
-    season_year INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    manager_id INTEGER NOT NULL REFERENCES managers(id),
+    team_id INT NOT NULL,
+    season_year INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    manager_id INT NOT NULL,
     PRIMARY KEY (team_id, season_year),
-    UNIQUE (season_year, name)
-) WITHOUT ROWID;
+    UNIQUE (season_year, name),
+    FOREIGN KEY (team_id) REFERENCES teams (id),
+    FOREIGN KEY (manager_id) REFERENCES managers (id)
+);
 """
 
 
-def import_teams(csv_path: Path, db_path: Path) -> int:
+def import_teams(csv_path: Path) -> int:
     teams = load_teams(csv_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
+    with db.connect() as conn:
         conn.executescript(SCHEMA)
         for team in teams.itertuples(index=False):
             conn.execute(
-                "INSERT INTO managers (name, email) VALUES (?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET email = excluded.email",
+                "INSERT INTO managers (name, email) VALUES (%s, %s) AS new "
+                "ON DUPLICATE KEY UPDATE email = new.email",
                 (team.manager, team.manager_email),
             )
             manager_id = conn.execute(
-                "SELECT id FROM managers WHERE name = ?", (team.manager,)
+                "SELECT id FROM managers WHERE name = %s", (team.manager,)
             ).fetchone()[0]
             conn.execute(
-                "INSERT INTO teams (id, name, abbrev, manager_id) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, "
-                "abbrev = excluded.abbrev, manager_id = excluded.manager_id",
+                "INSERT INTO teams (id, name, abbrev, manager_id) VALUES (%s, %s, %s, %s) AS new "
+                "ON DUPLICATE KEY UPDATE name = new.name, "
+                "abbrev = new.abbrev, manager_id = new.manager_id",
                 (team.id, team.name, team.abbrev, manager_id),
             )
-        placeholders = ",".join("?" * len(teams))
+        placeholders = ",".join(["%s"] * len(teams))
         conn.execute(
             f"DELETE FROM teams WHERE id NOT IN ({placeholders})", teams["id"].tolist()
         )
@@ -107,14 +110,16 @@ def import_teams(csv_path: Path, db_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--csv", type=Path, default=REPO_ROOT / "data" / "teams.csv")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
     try:
-        count = import_teams(args.csv, args.db)
+        count = import_teams(args.csv)
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    print(f"Imported {count} teams into {args.db}")
+    except (db.Error, db.NotConfigured) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(f"Imported {count} teams")
     return 0
 
 

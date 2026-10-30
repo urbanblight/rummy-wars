@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
 import pandas as pd
 
 try:
-    from . import projections, zscores
+    from . import db, projections, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
+    import db
     import projections
     import zscores
 
 
-def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
+def active_sgp_vr(conn: db.Connection) -> dict[int, float]:
     """Team id -> total SGP vs replacement of the players active in the team's latest lineup.
 
     Players are matched to the batting and pitching tables by fantasy team and player id; an
@@ -26,11 +24,10 @@ def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
     totals = pd.Series(0.0, index=pd.Index(lineups["team_id"].unique(), name="team_id"))
     for player_type, (table, _columns) in zscores.TABLES.items():
         try:
-            scores = pd.read_sql_query(
+            scores = conn.read_sql(
                 f"SELECT team_id, player_id, sgp_total_above_replacement AS vr FROM {table} WHERE team_id IS NOT NULL AND player_id IS NOT NULL",  # noqa: S608
-                conn,
             )
-        except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        except (*db.SchemaError, pd.errors.DatabaseError):
             continue
         active = lineups[lineups["player_type"] == player_type][["team_id", "player_id"]]
         matched = active.astype({"team_id": "Int64"}).merge(scores.astype({"team_id": "Int64"}), on=["team_id", "player_id"])
@@ -38,7 +35,7 @@ def active_sgp_vr(conn: sqlite3.Connection) -> dict[int, float]:
     return {int(team_id): float(total) for team_id, total in totals.items()}
 
 
-def projected_active_sgp_vr(conn: sqlite3.Connection) -> dict[str, dict[int, float]]:
+def projected_active_sgp_vr(conn: db.Connection) -> dict[str, dict[int, float]]:
     """System key (``ZIPS-2027``) -> team id -> total projected SGP vs replacement of the active players.
 
     Like ``active_sgp_vr``, but each player is worth the projection system's value for the
@@ -51,12 +48,11 @@ def projected_active_sgp_vr(conn: sqlite3.Connection) -> dict[str, dict[int, flo
     result: dict[str, pd.Series] = {}
     for player_type, table in projections.SCORE_TABLES.items():
         try:
-            scores = pd.read_sql_query(
-                f"SELECT system, season, player_id, sgp_total_above_replacement AS vr FROM {table} "  # noqa: S608
+            scores = conn.read_sql(
+                f"SELECT `system`, season, player_id, sgp_total_above_replacement AS vr FROM {table} "  # noqa: S608
                 "WHERE sgp_total_above_replacement IS NOT NULL",
-                conn,
             )
-        except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        except (*db.SchemaError, pd.errors.DatabaseError):
             continue
         active = lineups[lineups["player_type"] == player_type][["team_id", "player_id"]]
         merged = active.merge(scores, on="player_id")
@@ -67,7 +63,7 @@ def projected_active_sgp_vr(conn: sqlite3.Connection) -> dict[str, dict[int, flo
     return {key: {int(team_id): float(total) for team_id, total in totals.items()} for key, totals in result.items()}
 
 
-def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[dict]]:
+def league_teams() -> tuple[dict | None, list[dict]]:
     """Teams in the order of the most recent standings snapshot.
 
     Returns ``(snapshot, teams)``. ``snapshot`` is ``{"season_year", "as_of_date"}`` for the
@@ -78,35 +74,34 @@ def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[d
     ``projected_active_sgp_vr`` total). Returns ``(None, [])`` if the
     database or its teams table is missing.
     """
-    db_path = zscores.stats_db_path(db_path)
-    if not db_path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return None, []
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with conn:
         try:
             latest = conn.execute(
                 "SELECT season_year, as_of_date FROM standings ORDER BY season_year DESC, as_of_date DESC LIMIT 1"
             ).fetchone()
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             latest = None
         snapshot = dict(latest) if latest else None
         standing_join = (
-            "LEFT JOIN standings s ON s.team_id = t.id AND s.season_year = ? AND s.as_of_date = ?"
+            "LEFT JOIN standings s ON s.team_id = t.id AND s.season_year = %s AND s.as_of_date = %s"
             if snapshot
-            else "LEFT JOIN (SELECT NULL AS team_id, NULL AS rank, NULL AS total_points) s ON s.team_id = t.id"
+            else "LEFT JOIN (SELECT NULL AS team_id, NULL AS `rank`, NULL AS total_points) s ON s.team_id = t.id"
         )
         try:
             rows = conn.execute(
                 f"""
-                SELECT t.id, t.name, t.abbrev, m.name AS manager, s.rank, s.total_points
+                SELECT t.id, t.name, t.abbrev, m.name AS manager, s.`rank`, s.total_points
                 FROM teams t
                 JOIN managers m ON m.id = t.manager_id
                 {standing_join}
-                ORDER BY s.rank IS NULL, s.rank, t.name
+                ORDER BY s.`rank` IS NULL, s.`rank`, t.name
                 """,
                 (snapshot["season_year"], snapshot["as_of_date"]) if snapshot else (),
             ).fetchall()
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             return snapshot, []
         active = active_sgp_vr(conn)
         projected = projected_active_sgp_vr(conn)
@@ -120,7 +115,7 @@ def league_teams(db_path: str | Path | None = None) -> tuple[dict | None, list[d
     ]
 
 
-def get_team(team_id: int, db_path: str | Path | None = None) -> dict | None:
+def get_team(team_id: int) -> dict | None:
     """One team from ``league_teams`` by id, or None if it does not exist."""
-    _snapshot, teams = league_teams(db_path)
+    _snapshot, teams = league_teams()
     return next((team for team in teams if team["id"] == team_id), None)

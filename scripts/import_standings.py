@@ -1,8 +1,8 @@
-"""Import a CBS league standings export into a sqlite database.
+"""Import a CBS league standings export into the MySQL database.
 
 Usage:
     python scripts/import_standings.py data/standings/2025.csv [--year 2025]
-        [--as-of 2025-09-28] [--db data/stats.db]
+        [--as-of 2025-09-28]
 
 Accepts the tab-delimited paste (2023-2025) and the comma-delimited export
 (2026). Each file holds the overall standings plus a per-category breakdown
@@ -25,37 +25,41 @@ from __future__ import annotations
 import argparse
 import csv
 import re
-import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import db  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS standings (
-    season_year INTEGER NOT NULL,
-    as_of_date TEXT NOT NULL,
-    team_id INTEGER NOT NULL REFERENCES teams(id),
-    rank INTEGER NOT NULL,
-    batting_points REAL NOT NULL,
-    pitching_points REAL NOT NULL,
-    total_points REAL NOT NULL,
-    points_change REAL,
-    points_behind REAL,
-    PRIMARY KEY (season_year, as_of_date, team_id)
-) WITHOUT ROWID;
+    season_year INT NOT NULL,
+    as_of_date VARCHAR(10) NOT NULL,
+    team_id INT NOT NULL,
+    `rank` INT NOT NULL,
+    batting_points DOUBLE NOT NULL,
+    pitching_points DOUBLE NOT NULL,
+    total_points DOUBLE NOT NULL,
+    points_change DOUBLE,
+    points_behind DOUBLE,
+    PRIMARY KEY (season_year, as_of_date, team_id),
+    FOREIGN KEY (team_id) REFERENCES teams (id)
+);
 CREATE TABLE IF NOT EXISTS standings_categories (
-    season_year INTEGER NOT NULL,
-    as_of_date TEXT NOT NULL,
-    team_id INTEGER NOT NULL REFERENCES teams(id),
-    category TEXT NOT NULL,
-    category_type TEXT NOT NULL CHECK (category_type IN ('batting', 'pitching')),
-    value REAL NOT NULL,
-    points REAL NOT NULL,
-    points_change REAL,
-    PRIMARY KEY (season_year, as_of_date, team_id, category)
-) WITHOUT ROWID;
+    season_year INT NOT NULL,
+    as_of_date VARCHAR(10) NOT NULL,
+    team_id INT NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    category_type VARCHAR(16) NOT NULL CHECK (category_type IN ('batting', 'pitching')),
+    value DOUBLE NOT NULL,
+    points DOUBLE NOT NULL,
+    points_change DOUBLE,
+    PRIMARY KEY (season_year, as_of_date, team_id, category),
+    FOREIGN KEY (team_id) REFERENCES teams (id)
+);
 """
 
 
@@ -118,21 +122,20 @@ def parse_standings(text: str) -> tuple[list[dict], list[dict]]:
     return overall, categories
 
 
-def load_team_ids(conn: sqlite3.Connection, year: int) -> dict[str, int]:
+def load_team_ids(conn: db.Connection, year: int) -> dict[str, int]:
     rows = conn.execute(
-        "SELECT team_id, name FROM teams_history WHERE season_year = ?", (year,)
+        "SELECT team_id, name FROM teams_history WHERE season_year = %s", (year,)
     ).fetchall()
     if not rows:
         raise RuntimeError(f"No teams_history rows for {year}; add that season's teams first")
     return {normalize_team_name(name): team_id for team_id, name in rows}
 
 
-def import_standings(path: Path, db_path: Path, year: int, as_of: str) -> tuple[int, int]:
+def import_standings(path: Path, year: int, as_of: str) -> tuple[int, int]:
     overall, categories = parse_standings(path.read_text(encoding="utf-8-sig"))
     if not overall:
         raise ValueError(f"No overall standings found in {path}")
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
+    with db.connect() as conn:
         conn.executescript(SCHEMA)
         team_ids = load_team_ids(conn, year)
         unknown = sorted({r["team"] for r in overall + categories
@@ -140,17 +143,17 @@ def import_standings(path: Path, db_path: Path, year: int, as_of: str) -> tuple[
         if unknown:
             raise ValueError(f"Teams not in teams_history for {year}: {', '.join(unknown)}")
         key = (year, as_of)
-        conn.execute("DELETE FROM standings WHERE season_year = ? AND as_of_date = ?", key)
+        conn.execute("DELETE FROM standings WHERE season_year = %s AND as_of_date = %s", key)
         conn.execute(
-            "DELETE FROM standings_categories WHERE season_year = ? AND as_of_date = ?", key
+            "DELETE FROM standings_categories WHERE season_year = %s AND as_of_date = %s", key
         )
         conn.executemany(
-            "INSERT INTO standings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO standings VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             [(year, as_of, team_ids[normalize_team_name(r["team"])], r["rank"], r["batting"],
               r["pitching"], r["total"], r["change"], r["behind"]) for r in overall],
         )
         conn.executemany(
-            "INSERT INTO standings_categories VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO standings_categories VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             [(year, as_of, team_ids[normalize_team_name(r["team"])], r["category"], r["type"],
               r["value"], r["points"], r["change"]) for r in categories],
         )
@@ -162,7 +165,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("file", type=Path, help="standings export, e.g. data/standings/2025.csv")
     parser.add_argument("--year", type=int, help="season year (default: number in the file name)")
     parser.add_argument("--as-of", help="snapshot date YYYY-MM-DD (default: December 31 of the season)")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
 
     year = args.year
@@ -178,11 +180,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--as-of must be a YYYY-MM-DD date")
 
     try:
-        teams, rows = import_standings(args.file, args.db, year, as_of)
-    except (FileNotFoundError, ValueError, RuntimeError, sqlite3.Error) as error:
+        teams, rows = import_standings(args.file, year, as_of)
+    except (FileNotFoundError, ValueError, RuntimeError, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Imported {year} standings as of {as_of}: {teams} teams, {rows} category rows into {args.db}")
+    print(f"Imported {year} standings as of {as_of}: {teams} teams, {rows} category rows")
     return 0
 
 

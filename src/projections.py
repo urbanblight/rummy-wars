@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
 import pandas as pd
 
 try:
-    from . import zscores
+    from . import db, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
+    import db
     import zscores
 
 TABLES = {"Batter": "batting_projections", "Pitcher": "pitching_projections"}
@@ -32,20 +30,20 @@ COLUMNS = {
 }
 
 
-def systems(db_path: str | Path | None = None) -> list[dict]:
+def systems() -> list[dict]:
     """Projection systems with imported data, as ``{"key", "label", "system", "season"}``.
 
     ``key`` (``ZIPS-2027``) is what the stats source selector submits. Newest season first.
     """
-    path = zscores.stats_db_path(db_path)
-    if not path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return []
     found: set[tuple[str, int]] = set()
-    with sqlite3.connect(path) as conn:
+    with conn:
         for table in TABLES.values():
             try:
-                found.update(conn.execute(f"SELECT DISTINCT system, season FROM {table}").fetchall())  # noqa: S608
-            except sqlite3.OperationalError:
+                found.update(tuple(row) for row in conn.execute(f"SELECT DISTINCT `system`, season FROM {table}").fetchall())  # noqa: S608
+            except db.SchemaError:
                 continue
     return [
         {"key": f"{system}-{season}", "label": f"{system} {season}", "system": system, "season": season}
@@ -53,7 +51,7 @@ def systems(db_path: str | Path | None = None) -> list[dict]:
     ]
 
 
-def _value(row: sqlite3.Row, player_type: str, cat: str) -> float | None:
+def _value(row: db.Row, player_type: str, cat: str) -> float | None:
     columns = row.keys()
 
     def get(column: str) -> float | None:
@@ -68,34 +66,33 @@ def _value(row: sqlite3.Row, player_type: str, cat: str) -> float | None:
     return get(COLUMNS[player_type].get(cat, cat.lower()))
 
 
-def load_stats(system: str, season: int, player_type: str, db_path: str | Path | None = None) -> dict[str, dict]:
+def load_stats(system: str, season: int, player_type: str) -> dict[str, dict]:
     """Player id -> {scoring category: projected value} from the system's latest snapshot."""
-    path = zscores.stats_db_path(db_path)
     table = TABLES[player_type]
     categories = zscores.scoring_categories(player_type)
-    if not path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return {}
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
+    with conn:
         try:
             rows = conn.execute(
-                f"SELECT * FROM {table} WHERE system = ? AND season = ? AND player_id IS NOT NULL "  # noqa: S608
-                f"AND snapshot = (SELECT MAX(snapshot) FROM {table} WHERE system = ? AND season = ?)",
+                f"SELECT * FROM {table} WHERE `system` = %s AND season = %s AND player_id IS NOT NULL "  # noqa: S608
+                f"AND snapshot = (SELECT MAX(snapshot) FROM {table} WHERE `system` = %s AND season = %s)",
                 (system, season, system, season),
             ).fetchall()
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             return {}
     return {row["player_id"]: {cat: _value(row, player_type, cat) for cat in categories} for row in rows}
 
 
-def apply_stats(players: list, player_type: str, system: str, season: int, db_path: str | Path | None = None) -> None:
+def apply_stats(players: list, player_type: str, system: str, season: int) -> None:
     """Replace each player's season-to-date stats and scores with the system's projection, in place.
 
     Players the system does not project (or that have no player id) are left with no stats or
     scores. The CBS rank is blanked because it describes the current season, not the projection.
     """
-    projected = load_stats(system, season, player_type, db_path)
-    scores = load_scores(system, season, player_type, db_path)
+    projected = load_stats(system, season, player_type)
+    scores = load_scores(system, season, player_type)
     stored = set(next(iter(scores.values())).keys()) if scores else set()
     categories = zscores.scoring_categories(player_type)
     context = zscores.ScoreContext(
@@ -117,34 +114,32 @@ def apply_stats(players: list, player_type: str, system: str, season: int, db_pa
             player.cbs_rank = None
 
 
-def load_scores(system: str, season: int, player_type: str, db_path: str | Path | None = None) -> dict[str, sqlite3.Row]:
+def load_scores(system: str, season: int, player_type: str) -> dict[str, db.Row]:
     """Player id -> stored score row for the system, or empty if scores were never calculated."""
-    path = zscores.stats_db_path(db_path)
-    if not path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return {}
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
+    with conn:
         try:
             rows = conn.execute(
-                f"SELECT *, 0 AS rank FROM {SCORE_TABLES[player_type]} WHERE system = ? AND season = ?",  # noqa: S608
+                f"SELECT *, 0 AS `rank` FROM {SCORE_TABLES[player_type]} WHERE `system` = %s AND season = %s",  # noqa: S608
                 (system, season),
             ).fetchall()
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             return {}
     return {row["player_id"]: row for row in rows}
 
 
-def _latest_projections(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
+def _latest_projections(conn: db.Connection, table: str) -> pd.DataFrame:
     """Every system's latest snapshot of a projection table."""
-    return pd.read_sql_query(
+    return conn.read_sql(
         f"SELECT * FROM {table} p WHERE player_id IS NOT NULL AND snapshot = "  # noqa: S608 - fixed table names
-        f"(SELECT MAX(snapshot) FROM {table} WHERE system = p.system AND season = p.season)",
-        conn,
+        f"(SELECT MAX(snapshot) FROM {table} WHERE `system` = p.`system` AND season = p.season)",
     )
 
 
 def _score_system(
-    conn: sqlite3.Connection, projected: pd.DataFrame, player_type: str, owners: pd.DataFrame, factors: dict
+    conn: db.Connection, projected: pd.DataFrame, player_type: str, owners: pd.DataFrame, factors: dict
 ) -> pd.DataFrame:
     """Z-scores, SGP and above-replacement values for one system's projections of a player type.
 
@@ -167,16 +162,13 @@ def _score_system(
     return df[keep + [c for c in df.columns if c.startswith(("z_", "sgp_"))]]
 
 
-def save_projection_scores(db_path: str | Path | None = None) -> None:
+def save_projection_scores() -> None:
     """Store z-scores, SGP, above-replacement values and ranks for each system's latest projections.
 
     Rebuilds ``batting_projection_scores`` and ``pitching_projection_scores``. Re-run after
     importing projections or new player stats, since replacement levels depend on both.
     """
-    path = zscores.stats_db_path(db_path)
-    if not path.exists():
-        return
-    with sqlite3.connect(path) as conn:
+    with db.connect() as conn:
         factors = zscores.load_sgp_factors(conn)
         for player_type, table in TABLES.items():
             if not zscores.scoring_categories(player_type):
@@ -184,16 +176,15 @@ def save_projection_scores(db_path: str | Path | None = None) -> None:
             stats_table = zscores.TABLES[player_type][0]
             try:
                 projections = _latest_projections(conn, table)
-                owners = pd.read_sql_query(
+                owners = conn.read_sql(
                     f"SELECT player_id, team_id, positions FROM {stats_table} "  # noqa: S608
-                    "WHERE player_id IS NOT NULL ORDER BY rank",
-                    conn,
+                    "WHERE player_id IS NOT NULL ORDER BY `rank`",
                 ).drop_duplicates(subset="player_id")
-            except (sqlite3.OperationalError, pd.errors.DatabaseError):
+            except (*db.SchemaError, pd.errors.DatabaseError):
                 continue
             frames = [
                 _score_system(conn, group, player_type, owners, factors)
                 for _key, group in projections.groupby(["system", "season"])
             ]
             if frames:
-                pd.concat(frames).to_sql(SCORE_TABLES[player_type], conn, if_exists="replace", index=False)
+                conn.write_frame(pd.concat(frames), SCORE_TABLES[player_type])

@@ -14,11 +14,11 @@ To access the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball pla
 
 ## Refreshing the stats database
 
-The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in `data/stats.db` (not tracked by git). The Teams pages (`/teams`, listed in the order of the latest imported standings, and `/teams/<id>` for each team's players) read the same database. Rebuild it whenever the source files change:
+The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in a MySQL database (8.0.13 or newer), configured by the `DATABASE_URL` environment variable (for example `mysql+pymysql://user:password@host:3306/rummy_wars`; put it in `.env`, which is not tracked by git). The Teams pages (`/teams`, listed in the order of the latest imported standings, and `/teams/<id>` for each team's players) read the same database. Rebuild it whenever the source files change:
 
 ```bash
 source .venv/bin/activate
-python scripts/refresh.py [--year 2026] [--data-dir data] [--db data/stats.db]
+python scripts/refresh.py [--year 2026] [--data-dir data]
 ```
 
 `refresh.py` runs these steps in order and stops at the first failure:
@@ -41,7 +41,8 @@ Projection systems (ZiPS, Steamer, ...) are imported separately from `refresh.py
 source .venv/bin/activate
 python scripts/import_players.py                      # once, so projections can be linked to player ids
 python scripts/import_projections.py                  # every file in data/projections
-python scripts/import_projections.py data/projections/ZIPS-2027-batting.csv [--db data/stats.db]
+python scripts/import_projections.py data/projections/ZIPS-2027-batting.csv
+python scripts/import_rankings.py                     # dynasty rankings in data/rankings (<source>-<season>-dynasty.csv)
 ```
 
 - Put FanGraphs-style CSV exports in `data/projections`, named `<system>-<season>-<batting|pitching>.csv`, for example `ZIPS-2027-batting.csv`. The system, season and table come from the file name; other `.csv` files in the folder are skipped with a warning.
@@ -51,8 +52,8 @@ python scripts/import_projections.py data/projections/ZIPS-2027-batting.csv [--d
 
 ```sql
 SELECT * FROM batting_projections
-WHERE system = 'ZIPS' AND season = 2027
-  AND snapshot = (SELECT MAX(snapshot) FROM batting_projections WHERE system = 'ZIPS' AND season = 2027);
+WHERE `system` = 'ZIPS' AND season = 2027
+  AND snapshot = (SELECT MAX(snapshot) FROM batting_projections WHERE `system` = 'ZIPS' AND season = 2027);
 ```
 
 
@@ -64,8 +65,19 @@ WHERE system = 'ZIPS' AND season = 2027
 - `data/standings/<year>.csv`, the CBS standings export for each full season. SGP needs at least one.
 - A `teams_history` row for every team in each standings season, since standings team names are matched against it (ignoring case, punctuation and a leading "The").
 - `.env` settings:
+  - `DATABASE_URL`, the MySQL connection string. `DATABASE_URL` is read from the environment, so it can also be exported in the shell; when deploying, `scripts/deploy.sh` loads it from a Secret Manager secret named `DATABASE_URL`.
   - `BATTING_SCORING_CATEGORIES` and `PITCHING_SCORING_CATEGORIES`, using the standings category names (`HR,R,SB,BA,OBP,SLG,RBI` and `W+QS,S,ERA,WHIP,Kd9,HD,INN`).
   - `BATTING_ACTIVE_SLOTS` and `PITCHING_ACTIVE_SLOTS`, the lineup size used to estimate a typical team's playing time (default 10).
   - `MAX_ACTIVE_SP` and `MAX_ACTIVE_RP`, the most pitcher slots a team can give to starters or relievers. Pitcher slots are taken from the imported lineups when available, otherwise split evenly within these limits. A pitcher role's replacement level is never lower than the players just outside the league's active slots for that role.
 
 Without any imported standings the stats import still runs, but it warns and leaves the SGP factors unchanged.
+
+### Running the database tests
+
+Tests that touch the database run against a throwaway MySQL schema named by `TEST_DATABASE_URL` (the schema name must contain `test`; all its tables are dropped before each test) and are skipped when it is not set:
+
+```bash
+docker run -d --name rw-mysql-test -e MYSQL_ROOT_PASSWORD=test -e MYSQL_DATABASE=rummy_wars_test -p 33306:3306 mysql:8.4
+export TEST_DATABASE_URL=mysql+pymysql://root:test@127.0.0.1:33306/rummy_wars_test
+pytest tests
+```

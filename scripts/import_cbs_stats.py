@@ -1,7 +1,7 @@
-"""Import CBS player-pool stats CSVs into a sqlite database.
+"""Import CBS player-pool stats CSVs into the MySQL database.
 
 Usage:
-    python scripts/import_cbs_stats.py [--year 2026] [--data-dir data] [--db data/stats.db]
+    python scripts/import_cbs_stats.py [--year 2026] [--data-dir data]
 
 Reads ``<data-dir>/<year>/stats-batting.csv`` and ``stats-pitching.csv`` and
 (re)creates the ``batting`` and ``pitching`` tables in the database (run
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -31,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import calculate_sgp  # noqa: E402
+import db  # noqa: E402
 import projections  # noqa: E402
 import zscores  # noqa: E402
 from import_teams import normalize_team_name  # noqa: E402
@@ -46,19 +46,19 @@ def innings_to_float(value: float) -> float:
     return whole + outs / 3
 
 
-def load_team_ids(db_path: Path) -> dict[str, int]:
+def load_team_ids() -> dict[str, int]:
     """Map normalized fantasy team name -> teams.id (run import_teams.py first)."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with db.connect() as conn:
             rows = conn.execute("SELECT id, name FROM teams").fetchall()
-    except sqlite3.OperationalError as error:
-        raise RuntimeError(f"No teams table in {db_path}; run scripts/import_teams.py first") from error
+    except db.SchemaError as error:
+        raise RuntimeError("No teams table in the database; run scripts/import_teams.py first") from error
     return {normalize_team_name(name): team_id for team_id, name in rows}
 
 
-def load_player_index(db_path: Path) -> PlayerIndex:
+def load_player_index() -> PlayerIndex:
     """Index the players table (run import_players.py first)."""
-    with sqlite3.connect(db_path) as conn:
+    with db.connect() as conn:
         return PlayerIndex.load(conn)
 
 
@@ -85,24 +85,23 @@ def load_csv(path: Path, team_ids: dict[str, int], index: PlayerIndex, player_ty
     return df.reset_index(drop=True)
 
 
-def import_stats(year: str, data_dir: Path, db_path: Path) -> dict[str, int]:
-    team_ids = load_team_ids(db_path)
-    index = load_player_index(db_path)
+def import_stats(year: str, data_dir: Path) -> dict[str, int]:
+    team_ids = load_team_ids()
+    index = load_player_index()
     batting = load_csv(data_dir / year / "stats-batting.csv", team_ids, index, "Batter")
     pitching = load_csv(data_dir / year / "stats-pitching.csv", team_ids, index, "Pitcher")
     pitching["INNs"] = pitching["INNs"].map(innings_to_float)
 
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
-        batting.to_sql("batting", conn, if_exists="replace", index=False)
-        pitching.to_sql("pitching", conn, if_exists="replace", index=False)
+    with db.connect() as conn:
+        conn.write_frame(batting, "batting")
+        conn.write_frame(pitching, "pitching")
     try:
-        calculate_sgp.save_factors(db_path)
-    except (ValueError, sqlite3.Error) as error:
+        calculate_sgp.save_factors()
+    except (ValueError, db.Error) as error:
         print(f"Warning: SGP factors not updated ({error})", file=sys.stderr)
-    zscores.save_z_scores(db_path)
-    projections.save_projection_scores(db_path)  # replacement levels depend on who is a free agent now
-    with sqlite3.connect(db_path) as conn:
+    zscores.save_z_scores()
+    projections.save_projection_scores()  # replacement levels depend on who is a free agent now
+    with db.connect() as conn:
         conn.execute("CREATE INDEX idx_batting_player ON batting (player_id)")
         conn.execute("CREATE INDEX idx_pitching_player ON pitching (player_id)")
     return {"batting": len(batting), "pitching": len(pitching)}
@@ -112,17 +111,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--year", default="2026")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
     try:
-        counts = import_stats(args.year, args.data_dir, args.db)
+        counts = import_stats(args.year, args.data_dir)
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except RuntimeError as error:
+    except (RuntimeError, db.Error, db.NotConfigured) as error:
         print(error, file=sys.stderr)
         return 1
-    print(f"Imported {counts['batting']} batters and {counts['pitching']} pitchers into {args.db}")
+    print(f"Imported {counts['batting']} batters and {counts['pitching']} pitchers")
     return 0
 
 

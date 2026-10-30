@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -15,15 +14,15 @@ def lineup_row(team_id, name, player_type, slot, status="Active", effective_date
     return (team_id, period_id, effective_date, order, player_type, status, slot, name.lower(), name, "X", "TB", None, None, None, None)
 
 
-def make_conn(rows):
-    conn = sqlite3.connect(":memory:")
+def make_conn(conn, rows):
+    conn.execute("SET FOREIGN_KEY_CHECKS = 0")  # the fixtures have no teams or players tables
     import_lineups.ensure_schema(conn)
-    conn.executemany(f"INSERT INTO lineups ({', '.join(import_lineups.COLUMNS)}) VALUES ({', '.join('?' * 15)})", rows)
+    conn.executemany(f"INSERT INTO lineups ({', '.join(import_lineups.COLUMNS)}) VALUES ({', '.join(['%s'] * 15)})", rows)
     return conn
 
 
-def test_latest_active_lineups_keeps_the_newest_snapshot_of_each_team_and_only_active_players():
-    conn = make_conn([
+def test_latest_active_lineups_keeps_the_newest_snapshot_of_each_team_and_only_active_players(conn):
+    make_conn(conn, [
         lineup_row(1, "Old Guy", "Batter", "C", effective_date="2026-06-01", order=1),
         lineup_row(1, "New Guy", "Batter", "C", effective_date="2026-09-28", order=1),
         lineup_row(1, "Bench Guy", "Batter", "C", status="Reserves", effective_date="2026-09-28", order=2),
@@ -36,17 +35,17 @@ def test_latest_active_lineups_keeps_the_newest_snapshot_of_each_team_and_only_a
     assert sorted(lineups["player_id"]) == ["new guy", "period guy"]
 
 
-def test_latest_active_lineups_is_none_without_the_table_or_rows():
-    assert zscores.latest_active_lineups(sqlite3.connect(":memory:")) is None
-    assert zscores.latest_active_lineups(make_conn([])) is None
+def test_latest_active_lineups_is_none_without_the_table_or_rows(conn):
+    assert zscores.latest_active_lineups(conn) is None
+    assert zscores.latest_active_lineups(make_conn(conn, [])) is None
 
 
-def test_pitcher_slots_are_per_team_averages_of_the_real_lineups():
+def test_pitcher_slots_are_per_team_averages_of_the_real_lineups(conn):
     rows = [lineup_row(1, f"sp{i}", "Pitcher", "SP", order=10 + i) for i in range(6)]
     rows += [lineup_row(2, f"sp{i}", "Pitcher", "SP", order=10 + i) for i in range(4)]
     rows += [lineup_row(1, "rp", "Pitcher", "RP", order=20), lineup_row(2, "rp", "Pitcher", "RP", order=20)]
     rows += [lineup_row(1, "bat", "Batter", "C", order=30)]
-    lineups = zscores.latest_active_lineups(make_conn(rows))
+    lineups = zscores.latest_active_lineups(make_conn(conn, rows))
 
     assert zscores.active_pitcher_slots(lineups) == {"SP": 5.0, "RP": 1.0}
 
@@ -73,14 +72,14 @@ def test_active_lineup_volume_sums_active_players_per_team_and_averages_the_team
     assert zscores.active_lineup_volume(stats, lineups, "Pitcher") is None
 
 
-def test_batter_volume_uses_active_lineups_scaled_by_how_much_of_the_season_they_cover():
-    conn = make_conn([
+def test_batter_volume_uses_active_lineups_scaled_by_how_much_of_the_season_they_cover(conn):
+    make_conn(conn, [
         lineup_row(1, "bat", "Batter", "C", order=1),
         lineup_row(1, "arm", "Pitcher", "SP", order=2),
     ])
-    conn.execute("CREATE TABLE standings_categories (season_year, as_of_date, category, value)")
+    conn.execute("CREATE TABLE standings_categories (season_year INT, as_of_date VARCHAR(10), category VARCHAR(64), value DOUBLE)")
     conn.execute("INSERT INTO standings_categories VALUES (2026, '2026-12-31', 'INN', 200.0)")
-    pd.DataFrame({"team_id": [1], "player_id": ["arm"], "INNs": [160.0]}).to_sql("pitching", conn, index=False)
+    conn.write_frame(pd.DataFrame({"team_id": [1], "player_id": ["arm"], "INNs": [160.0]}), "pitching")
     batting = pd.DataFrame({"team_id": [1, 1], "player_id": ["bat", "other"], "AB": [500.0, 450.0]})
 
     # The active pitcher covers 160 of the 200 real innings, so a lineup's AB is scaled by 1.25.
@@ -90,9 +89,9 @@ def test_batter_volume_uses_active_lineups_scaled_by_how_much_of_the_season_they
     assert zscores.team_volume(conn, pd.DataFrame({"team_id": [1], "player_id": ["arm"], "INNs": [160.0]}), "Pitcher") == 200.0
 
 
-def test_volume_falls_back_to_most_used_players_without_lineups():
+def test_volume_falls_back_to_most_used_players_without_lineups(conn):
     batting = pd.DataFrame({"team_id": [1, 1, 1], "player_id": ["a", "b", "c"], "AB": [500.0, 400.0, 300.0]})
-    assert zscores.team_volume(sqlite3.connect(":memory:"), batting, "Batter") == 1200.0
+    assert zscores.team_volume(conn, batting, "Batter") == 1200.0
 
 
 def test_slot_levels_round_fractional_per_team_slots_to_a_league_rank(monkeypatch):

@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,7 +5,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+import db  # noqa: E402
 import import_lineups  # noqa: E402
 import import_players  # noqa: E402
 
@@ -37,10 +38,9 @@ Active: 20 Reserve: 7 Injured: 8 Minors: 20
 '''
 
 
-def make_db(path):
-    conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.executemany("INSERT INTO teams VALUES (?, ?)", [(7, "The Outfield"), (8, "Wheatus")])
+def make_db(conn):
+    conn.execute("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(255))")
+    conn.executemany("INSERT INTO teams VALUES (%s, %s)", [(7, "The Outfield"), (8, "Wheatus")])
     conn.executescript(import_players.SCHEMA)
     conn.execute(
         "INSERT INTO players (player_id, name, cbs_name, team, pos, active) VALUES "
@@ -96,8 +96,8 @@ def test_parse_lineup_rejects_empty_or_unreadable_files():
         import_lineups.parse_lineup("Batters\n,C,not a player cell,x,1,2,3%,4%\n")
 
 
-def test_import_lineup_replaces_the_same_lineup_and_keeps_others(tmp_path):
-    conn = make_db(tmp_path / "t.db")
+def test_import_lineup_replaces_the_same_lineup_and_keeps_others(tmp_path, conn):
+    make_db(conn)
     offseason = tmp_path / "roster-overview-7-20260928.csv"
     inseason = tmp_path / "roster-overview-7-12-20260928.csv"
     other_team = tmp_path / "roster-overview-8-20260928.csv"
@@ -111,8 +111,8 @@ def test_import_lineup_replaces_the_same_lineup_and_keeps_others(tmp_path):
     assert rows == [(7, None, 7), (7, 12, 7), (8, None, 7)]
 
 
-def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(tmp_path):
-    conn = make_db(tmp_path / "t.db")
+def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(tmp_path, conn):
+    make_db(conn)
     path = tmp_path / "roster-overview-7-20260928.csv"
     path.write_text(LINEUP)
 
@@ -124,8 +124,8 @@ def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(
     assert ids["Bubba Chandler"] is None
 
 
-def test_import_lineup_records_when_it_was_captured_apart_from_the_effective_date(tmp_path):
-    conn = make_db(tmp_path / "t.db")
+def test_import_lineup_records_when_it_was_captured_apart_from_the_effective_date(tmp_path, conn):
+    make_db(conn)
     path = tmp_path / "roster-overview-7-20260928.csv"
     path.write_text(LINEUP)
 
@@ -139,32 +139,31 @@ def test_import_lineup_records_when_it_was_captured_apart_from_the_effective_dat
     assert abs(datetime.now(timezone.utc) - datetime.fromisoformat(captured)) < timedelta(minutes=1)
 
 
-def test_ensure_schema_adds_captured_at_to_an_existing_lineups_table():
-    conn = sqlite3.connect(":memory:")
-    conn.executescript(import_lineups.SCHEMA)
+def test_ensure_schema_adds_captured_at_to_an_existing_lineups_table(conn):
+    make_db(conn)
     conn.execute("ALTER TABLE lineups DROP COLUMN captured_at")
     import_lineups.ensure_schema(conn)
-    assert "captured_at" in [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
+    assert "captured_at" in db.column_names(conn, "lineups")
 
 
-def test_ensure_schema_rebuilds_a_lineups_table_without_player_ids():
-    conn = sqlite3.connect(":memory:")
-    conn.execute("CREATE TABLE lineups (norm_name TEXT)")
+def test_ensure_schema_rebuilds_a_lineups_table_without_player_ids(conn):
+    make_db(conn)
+    conn.execute("DROP TABLE lineups")
+    conn.execute("CREATE TABLE lineups (norm_name VARCHAR(255))")
     import_lineups.ensure_schema(conn)
-    assert "player_id" in [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
+    assert "player_id" in db.column_names(conn, "lineups")
 
 
-def test_import_lineup_needs_the_players_table(tmp_path):
-    conn = sqlite3.connect(tmp_path / "t.db")
-    conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
+def test_import_lineup_needs_the_players_table(tmp_path, conn):
+    conn.execute("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(255))")
     path = tmp_path / "roster-overview-7-20260928.csv"
     path.write_text(LINEUP)
     with pytest.raises(RuntimeError, match="import_players"):
         import_lineups.import_lineup(path, conn)
 
 
-def test_import_lineup_requires_a_known_team(tmp_path):
-    conn = make_db(tmp_path / "t.db")
+def test_import_lineup_requires_a_known_team(tmp_path, conn):
+    make_db(conn)
     path = tmp_path / "roster-overview-99-20260928.csv"
     path.write_text(LINEUP)
 
@@ -182,16 +181,16 @@ def test_find_files_expands_folders_and_skips_other_csvs(tmp_path):
     assert [f.name for f in skipped] == ["notes.csv"]
 
 
-def test_main_imports_a_folder_and_reports_errors(tmp_path, capsys):
-    db = tmp_path / "t.db"
-    make_db(db).commit()
+def test_main_imports_a_folder_and_reports_errors(tmp_path, conn, capsys):
+    make_db(conn)
+    conn.commit()
     folder = tmp_path / "lineups"
     folder.mkdir()
     (folder / "roster-overview-7-20260928.csv").write_text(LINEUP)
 
-    assert import_lineups.main([str(folder), "--db", str(db)]) == 0
+    assert import_lineups.main([str(folder)]) == 0
     assert "Team 7 (offseason, 2026-09-28): 7 players" in capsys.readouterr().out
 
     (folder / "roster-overview-99-20260928.csv").write_text(LINEUP)
-    assert import_lineups.main([str(folder), "--db", str(db)]) == 1
+    assert import_lineups.main([str(folder)]) == 1
     assert "no team with id 99" in capsys.readouterr().err

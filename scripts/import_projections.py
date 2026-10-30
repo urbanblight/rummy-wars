@@ -2,7 +2,7 @@
 """Import projection-system CSVs into the ``batting_projections`` and ``pitching_projections`` tables.
 
 Usage:
-    python scripts/import_projections.py [PATH ...] [--db data/stats.db]
+    python scripts/import_projections.py [PATH ...]
 
 Each PATH is a FanGraphs-style projection export or a folder of them (default:
 ``data/projections``). Files are named ``<system>-<season>-<batting|pitching>.csv``, for
@@ -12,7 +12,7 @@ the export's FanGraphs ``PlayerId`` (then ``MLBAMID``), NULL with a warning if u
 
 Every import is stored under a new ``snapshot`` (the UTC time it was inserted), so
 projections are never overwritten and the history of a system's revisions is kept. Query
-the latest with ``snapshot = (SELECT MAX(snapshot) ... WHERE system = ? AND season = ?)``.
+the latest with ``snapshot = (SELECT MAX(snapshot) ... WHERE `system` = %s AND season = %s)``.
 After importing, z-scores, SGP and above-replacement values are calculated for every
 system's latest projections (see ``projections.save_projection_scores``) and shown when the
 projection is selected on a team page. Columns the export lacks are stored as NULL; columns the tables do not list are ignored.
@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +31,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+import db  # noqa: E402
 import projections  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
@@ -60,24 +60,24 @@ INTEGER_COLUMNS = {"g", "pa", "ab", "h", "singles", "doubles", "triples", "hr", 
 
 def _schema(kind: str) -> str:
     columns = ",\n    ".join(
-        f"{column} {'INTEGER' if column in INTEGER_COLUMNS else 'REAL'}"
+        f"{column} {'INT' if column in INTEGER_COLUMNS else 'DOUBLE'}"
         for column in dict.fromkeys(KINDS[kind].values())
     )
     return f"""
 CREATE TABLE IF NOT EXISTS {kind}_projections (
-    system TEXT NOT NULL,
-    season INTEGER NOT NULL,
-    snapshot TEXT NOT NULL,
-    player_id TEXT REFERENCES players(player_id),
-    fangraphs_id TEXT,
-    mlb_id TEXT,
-    name TEXT NOT NULL,
-    team TEXT,
-    {columns}
+    `system` VARCHAR(64) NOT NULL,
+    season INT NOT NULL,
+    snapshot VARCHAR(32) NOT NULL,
+    player_id VARCHAR(32),
+    fangraphs_id VARCHAR(32),
+    mlb_id VARCHAR(32),
+    name VARCHAR(255) NOT NULL,
+    team VARCHAR(32),
+    {columns},
+    UNIQUE KEY uq_{kind}_projections_player (`system`, season, snapshot, (IFNULL(fangraphs_id, name))),
+    KEY idx_{kind}_projections_player (player_id),
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_{kind}_projections_player
-    ON {kind}_projections (system, season, snapshot, IFNULL(fangraphs_id, name));
-CREATE INDEX IF NOT EXISTS idx_{kind}_projections_player ON {kind}_projections (player_id);
 """
 
 
@@ -105,11 +105,11 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
     return files, skipped
 
 
-def load_player_ids(conn: sqlite3.Connection) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+def load_player_ids(conn: db.Connection) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """FanGraphs id -> player ids and MLB id -> player ids from the players table."""
     try:
         rows = conn.execute("SELECT player_id, fangraphs_id, mlb_id FROM players").fetchall()
-    except sqlite3.OperationalError as error:
+    except db.SchemaError as error:
         raise RuntimeError("No players table in the database; run scripts/import_players.py first") from error
     by_fangraphs: dict[str, list[str]] = {}
     by_mlb: dict[str, list[str]] = {}
@@ -163,7 +163,7 @@ def load_projections(path: Path, kind: str, ids: tuple[dict, dict]) -> pd.DataFr
     return out.astype(object).where(out.notna(), None).reset_index(drop=True)
 
 
-def import_projections(path: Path, conn: sqlite3.Connection, snapshot: str, ids=None) -> tuple[str, int, str, int]:
+def import_projections(path: Path, conn: db.Connection, snapshot: str, ids=None) -> tuple[str, int, str, int]:
     """Insert one file as a new snapshot; returns (system, season, kind, rows)."""
     system, season, kind = parse_filename(path.name)
     ids = ids or load_player_ids(conn)
@@ -172,10 +172,10 @@ def import_projections(path: Path, conn: sqlite3.Connection, snapshot: str, ids=
     if len(unmatched):
         print(f"Warning: {path.name}: no player id for {len(unmatched)} players, e.g. {unmatched.head(5).tolist()}",
               file=sys.stderr)
-    columns = ["system", "season", "snapshot", *df.columns]
+    columns = ["`system`", "season", "snapshot", *df.columns]
     rows = [(system, season, snapshot, *row) for row in df.itertuples(index=False, name=None)]
     conn.executemany(
-        f"INSERT INTO {kind}_projections ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",  # noqa: S608
+        f"INSERT INTO {kind}_projections ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(columns))})",  # noqa: S608
         rows,
     )
     return system, season, kind, len(rows)
@@ -184,7 +184,6 @@ def import_projections(path: Path, conn: sqlite3.Connection, snapshot: str, ids=
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"projection files or folders (default: {DEFAULT_DIR})")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
 
     files, skipped = find_files(args.paths or [DEFAULT_DIR])
@@ -196,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
 
     snapshot = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        with sqlite3.connect(args.db) as conn:
+        with db.connect() as conn:
             conn.executescript(SCHEMA)
             ids = load_player_ids(conn)
             for path in files:
@@ -205,14 +204,14 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, RuntimeError, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     try:
-        projections.save_projection_scores(args.db)
-    except (ValueError, sqlite3.Error) as error:
+        projections.save_projection_scores()
+    except (ValueError, db.Error) as error:
         print(f"Warning: projection scores not calculated ({error})", file=sys.stderr)
-    print(f"Imported {len(files)} projection files as snapshot {snapshot} into {args.db}")
+    print(f"Imported {len(files)} projection files as snapshot {snapshot}")
     return 0
 
 

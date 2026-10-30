@@ -8,8 +8,12 @@ CBS and canonical names and then narrowed by MLB team, player type and active fl
 from __future__ import annotations
 
 import re
-import sqlite3
 import unicodedata
+
+try:
+    from . import db
+except ImportError:  # pragma: no cover - supports direct module imports
+    import db
 
 # CBS team abbreviation -> abbreviations the ID map may use for the same club.
 TEAM_ALIASES = {
@@ -43,7 +47,7 @@ def name_keys(name: str | None) -> list[str]:
 class PlayerIndex:
     """Name lookup over the ``players`` table."""
 
-    def __init__(self, rows: list[sqlite3.Row | tuple]) -> None:
+    def __init__(self, rows: list[tuple]) -> None:
         self._by_key: dict[str, dict[str, tuple]] = {}
         self._by_last: dict[str, dict[str, tuple]] = {}
         for row in rows:
@@ -55,11 +59,11 @@ class PlayerIndex:
                     self._by_last.setdefault(last, {})[player_id] = tuple(row)
 
     @classmethod
-    def load(cls, conn: sqlite3.Connection) -> PlayerIndex:
+    def load(cls, conn: db.Connection) -> PlayerIndex:
         """Index the players table; raises RuntimeError if it has not been imported."""
         try:
             rows = conn.execute("SELECT player_id, name, cbs_name, team, pos, active FROM players").fetchall()
-        except sqlite3.OperationalError as error:
+        except db.SchemaError as error:
             raise RuntimeError("No players table; run scripts/import_players.py first") from error
         return cls([tuple(row) for row in rows])
 

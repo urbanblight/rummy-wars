@@ -1,7 +1,7 @@
 """Calculate standings-gain-points (SGP) factors from imported standings.
 
 Usage:
-    python scripts/calculate_sgp.py [--latest-weight 0.5] [--db data/stats.db]
+    python scripts/calculate_sgp.py [--latest-weight 0.5]
 
 Run ``import_standings.py`` first. For every scoring category the script takes
 each season's full-year snapshot (``as_of_date`` = December 31), fits a line of
@@ -17,7 +17,6 @@ The result replaces the contents of the ``sgp_factors`` table.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,16 +24,19 @@ from pathlib import Path
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import db  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sgp_factors (
-    category TEXT PRIMARY KEY,
-    category_type TEXT NOT NULL CHECK (category_type IN ('batting', 'pitching')),
-    factor REAL NOT NULL,
-    first_season INTEGER NOT NULL,
-    last_season INTEGER NOT NULL,
-    latest_weight REAL NOT NULL,
-    calculated_at TEXT NOT NULL
+    category VARCHAR(64) PRIMARY KEY,
+    category_type VARCHAR(16) NOT NULL CHECK (category_type IN ('batting', 'pitching')),
+    factor DOUBLE NOT NULL,
+    first_season INT NOT NULL,
+    last_season INT NOT NULL,
+    latest_weight DOUBLE NOT NULL,
+    calculated_at VARCHAR(32) NOT NULL
 );
 """
 
@@ -53,12 +55,12 @@ def ewma_weights(count: int, latest_weight: float) -> list[float]:
     return weights[::-1]
 
 
-def calculate(conn: sqlite3.Connection, latest_weight: float) -> list[tuple]:
+def calculate(conn: db.Connection, latest_weight: float) -> list[tuple]:
     rows = conn.execute(
         """
         SELECT category, category_type, season_year, value, points
         FROM standings_categories
-        WHERE as_of_date = season_year || '-12-31'
+        WHERE as_of_date = CONCAT(season_year, '-12-31')
         ORDER BY category, season_year
         """
     ).fetchall()
@@ -83,13 +85,13 @@ def calculate(conn: sqlite3.Connection, latest_weight: float) -> list[tuple]:
     return results
 
 
-def save_factors(db_path: Path, latest_weight: float = 0.5) -> int:
+def save_factors(latest_weight: float = 0.5) -> int:
     """Recalculate and store the factors; returns the number of categories saved."""
-    with sqlite3.connect(db_path) as conn:
+    with db.connect() as conn:
         results = calculate(conn, latest_weight)
         conn.executescript(SCHEMA)
         conn.execute("DELETE FROM sgp_factors")
-        conn.executemany("INSERT INTO sgp_factors VALUES (?, ?, ?, ?, ?, ?, ?)", results)
+        conn.executemany("INSERT INTO sgp_factors VALUES (%s, %s, %s, %s, %s, %s, %s)", results)
     return len(results)
 
 
@@ -97,14 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--latest-weight", type=float, default=0.5,
                         help="weight of the most recent season (default: 0.5)")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
     try:
-        count = save_factors(args.db, args.latest_weight)
-    except (ValueError, sqlite3.Error) as error:
+        count = save_factors(args.latest_weight)
+    except (ValueError, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Saved SGP factors for {count} categories into {args.db}")
+    print(f"Saved SGP factors for {count} categories")
     return 0
 
 

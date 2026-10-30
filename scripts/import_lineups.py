@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Import CBS roster-overview (lineup) exports into a sqlite database.
+"""Import CBS roster-overview (lineup) exports into the MySQL database.
 
 Usage:
-    python scripts/import_lineups.py [PATH ...] [--db data/stats.db]
+    python scripts/import_lineups.py [PATH ...]
 
 Each PATH is a lineup file or a folder of them (default: ``data/lineups``). Files are
 named after the lineup they hold:
@@ -30,7 +30,6 @@ import argparse
 import csv
 import io
 import re
-import sqlite3
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -40,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import db  # noqa: E402
 from import_cbs_stats import PLAYER_PATTERN  # noqa: E402
 from player_ids import PlayerIndex  # noqa: E402
 
@@ -53,26 +53,27 @@ STATUSES = {"Batters": "Active", "Pitchers": "Active", "Reserves": "Reserves", "
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lineups (
-    team_id INTEGER NOT NULL REFERENCES teams(id),
-    period_id INTEGER,
-    effective_date TEXT NOT NULL,
-    slot_order INTEGER NOT NULL,
-    player_type TEXT NOT NULL CHECK (player_type IN ('Batter', 'Pitcher')),
-    status TEXT NOT NULL CHECK (status IN ('Active', 'Reserves', 'Injured', 'Minors')),
-    slot TEXT NOT NULL,
-    player_id TEXT REFERENCES players(player_id),
-    name TEXT NOT NULL,
-    positions TEXT NOT NULL,
-    mlb_team TEXT NOT NULL,
-    proj_rank INTEGER,
-    actual_rank INTEGER,
-    rostered_pct REAL,
-    started_pct REAL,
-    captured_at TEXT
+    team_id INT NOT NULL,
+    period_id INT,
+    effective_date VARCHAR(10) NOT NULL,
+    slot_order INT NOT NULL,
+    player_type VARCHAR(16) NOT NULL CHECK (player_type IN ('Batter', 'Pitcher')),
+    status VARCHAR(16) NOT NULL CHECK (status IN ('Active', 'Reserves', 'Injured', 'Minors')),
+    slot VARCHAR(16) NOT NULL,
+    player_id VARCHAR(32),
+    name VARCHAR(255) NOT NULL,
+    positions VARCHAR(64) NOT NULL,
+    mlb_team VARCHAR(16) NOT NULL,
+    proj_rank INT,
+    actual_rank INT,
+    rostered_pct DOUBLE,
+    started_pct DOUBLE,
+    captured_at VARCHAR(32),
+    UNIQUE KEY uq_lineups_slot (team_id, (IFNULL(period_id, -1)), effective_date, slot_order),
+    KEY idx_lineups_player (player_id),
+    FOREIGN KEY (team_id) REFERENCES teams (id),
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_lineups_slot
-    ON lineups (team_id, IFNULL(period_id, -1), effective_date, slot_order);
-CREATE INDEX IF NOT EXISTS idx_lineups_player ON lineups (player_id);
 """
 
 COLUMNS = (
@@ -153,21 +154,21 @@ def parse_lineup(text: str) -> list[dict]:
     return players
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
+def ensure_schema(conn: db.Connection) -> None:
     """Create the lineups table, rebuilding one that predates ``player_id`` (it is re-importable)."""
-    columns = [row[1] for row in conn.execute("PRAGMA table_info(lineups)")]
+    columns = db.column_names(conn, "lineups")
     if columns and "player_id" not in columns:
         conn.execute("DROP TABLE lineups")
     elif columns and "captured_at" not in columns:
-        conn.execute("ALTER TABLE lineups ADD COLUMN captured_at TEXT")
+        conn.execute("ALTER TABLE lineups ADD COLUMN captured_at VARCHAR(32)")
     conn.executescript(SCHEMA)
 
 
-def import_lineup(path: Path, conn: sqlite3.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
+def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
     """Replace one lineup's rows with the contents of ``path``; returns (lineup, players)."""
     index = index or PlayerIndex.load(conn)
     lineup = parse_filename(path.name)
-    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (lineup.team_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM teams WHERE id = %s", (lineup.team_id,)).fetchone():
         raise ValueError(f"{path.name}: no team with id {lineup.team_id}; run scripts/import_teams.py first")
     players = parse_lineup(path.read_text(encoding="utf-8-sig"))
     for player in players:
@@ -175,12 +176,12 @@ def import_lineup(path: Path, conn: sqlite3.Connection, index: PlayerIndex | Non
         if player["player_id"] is None:
             print(f"Warning: {path.name}: no player id for {player['name']} ({player['mlb_team']})", file=sys.stderr)
     conn.execute(
-        "DELETE FROM lineups WHERE team_id = ? AND period_id IS ? AND effective_date = ?",
+        "DELETE FROM lineups WHERE team_id = %s AND period_id <=> %s AND effective_date = %s",
         (lineup.team_id, lineup.period_id, lineup.effective_date),
     )
     captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.executemany(
-        f"INSERT INTO lineups ({', '.join(COLUMNS)}, captured_at) VALUES ({', '.join('?' * (len(COLUMNS) + 1))})",
+        f"INSERT INTO lineups ({', '.join(COLUMNS)}, captured_at) VALUES ({', '.join(['%s'] * (len(COLUMNS) + 1))})",
         [
             (lineup.team_id, lineup.period_id, lineup.effective_date, *(p[c] for c in COLUMNS[3:]), captured_at)
             for p in players
@@ -204,7 +205,6 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"lineup files or folders (default: {DEFAULT_DIR})")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
 
     files, skipped = find_files(args.paths or [DEFAULT_DIR])
@@ -216,8 +216,7 @@ def main(argv: list[str] | None = None) -> int:
 
     imported = 0
     try:
-        with sqlite3.connect(args.db) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
+        with db.connect() as conn:
             ensure_schema(conn)
             index = PlayerIndex.load(conn)
             for path in files:
@@ -228,10 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, RuntimeError, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Imported {imported} lineups into {args.db}")
+    print(f"Imported {imported} lineups")
     return 0
 
 

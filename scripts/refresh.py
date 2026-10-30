@@ -1,7 +1,7 @@
 """Refresh the whole stats database from the files under ``data/``.
 
 Usage:
-    python scripts/refresh.py [--year 2026] [--data-dir data] [--db data/stats.db]
+    python scripts/refresh.py [--year 2026] [--data-dir data]
 
 Runs, in order:
 
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -34,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import db  # noqa: E402
 import import_cbs_stats  # noqa: E402
 import import_lineups  # noqa: E402
 import import_players  # noqa: E402
@@ -52,7 +52,7 @@ def standings_files(data_dir: Path) -> list[tuple[int, Path]]:
     return sorted(files)
 
 
-def import_lineup_files(data_dir: Path, db_path: Path) -> int:
+def import_lineup_files(data_dir: Path) -> int:
     """Import the lineup files in ``<data_dir>/lineups`` in one transaction; returns how many."""
     folder = data_dir / "lineups"
     if not folder.is_dir():
@@ -62,8 +62,7 @@ def import_lineup_files(data_dir: Path, db_path: Path) -> int:
         print(f"Skipping {path.name}: not a roster-overview file name", file=sys.stderr)
     if not files:
         return 0
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
+    with db.connect() as conn:
         import_lineups.ensure_schema(conn)
         index = PlayerIndex.load(conn)
         for path in files:
@@ -71,22 +70,22 @@ def import_lineup_files(data_dir: Path, db_path: Path) -> int:
     return len(files)
 
 
-def refresh(year: str, data_dir: Path, db_path: Path) -> None:
-    count = import_teams.import_teams(data_dir / "teams.csv", db_path)
+def refresh(year: str, data_dir: Path) -> None:
+    count = import_teams.import_teams(data_dir / "teams.csv")
     print(f"Teams: imported {count} teams")
 
     players_csv = data_dir / "player-id-map.csv"
     source = players_csv if players_csv.exists() else import_players.DEFAULT_SOURCE
-    print(f"Players: imported {import_players.import_players(source, db_path)} players")
+    print(f"Players: imported {import_players.import_players(source)} players")
 
     for season, path in standings_files(data_dir):
-        teams, rows = import_standings.import_standings(path, db_path, season, f"{season}-12-31")
+        teams, rows = import_standings.import_standings(path, season, f"{season}-12-31")
         print(f"Standings {season}: {teams} teams, {rows} category rows")
 
-    lineups = import_lineup_files(data_dir, db_path)
+    lineups = import_lineup_files(data_dir)
     print(f"Lineups: imported {lineups} lineup files" if lineups else "Lineups: none found")
 
-    counts = import_cbs_stats.import_stats(year, data_dir, db_path)
+    counts = import_cbs_stats.import_stats(year, data_dir)
     print(f"Stats {year}: {counts['batting']} batters, {counts['pitching']} pitchers")
 
 
@@ -94,17 +93,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--year", default="2026", help="season of the player stats to import")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
     try:
-        refresh(args.year, args.data_dir, args.db)
+        refresh(args.year, args.data_dir)
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, RuntimeError, OSError, requests.RequestException, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, OSError, requests.RequestException, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Refreshed {args.db}")
+    print("Refreshed the stats database")
     return 0
 
 

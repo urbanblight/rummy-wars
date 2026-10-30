@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -17,35 +16,32 @@ def test_standings_files_lists_only_year_named_csvs_oldest_first(tmp_path):
     assert [year for year, _ in refresh.standings_files(tmp_path)] == [2023, 2025]
 
 
-def test_save_factors_replaces_stored_factors(tmp_path):
-    db = tmp_path / "t.db"
-    with sqlite3.connect(db) as conn:
-        conn.execute(
-            "CREATE TABLE standings_categories (season_year, as_of_date, team_id, category,"
-            " category_type, value, points, points_change)"
-        )
-        conn.executemany(
-            "INSERT INTO standings_categories VALUES (2026, '2026-12-31', ?, 'HR', 'batting', ?, ?, 0)",
-            [(1, 10, 1), (2, 20, 2), (3, 30, 3)],
-        )
+def test_save_factors_replaces_stored_factors(conn):
+    conn.execute(
+        "CREATE TABLE standings_categories (season_year INT, as_of_date VARCHAR(10), team_id INT,"
+        " category VARCHAR(64), category_type VARCHAR(16), value DOUBLE, points DOUBLE, points_change DOUBLE)"
+    )
+    conn.executemany(
+        "INSERT INTO standings_categories VALUES (2026, '2026-12-31', %s, 'HR', 'batting', %s, %s, 0)",
+        [(1, 10, 1), (2, 20, 2), (3, 30, 3)],
+    )
+    conn.commit()
 
-    assert calculate_sgp.save_factors(db) == 1
-    assert calculate_sgp.save_factors(db) == 1
-    with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT category, factor FROM sgp_factors").fetchall() == [("HR", 10.0)]
+    assert calculate_sgp.save_factors() == 1
+    assert calculate_sgp.save_factors() == 1
+    assert [tuple(row) for row in conn.execute("SELECT category, factor FROM sgp_factors").fetchall()] == [("HR", 10.0)]
 
 
-def test_import_lineup_files_imports_the_folder_and_handles_none(tmp_path):
+def test_import_lineup_files_imports_the_folder_and_handles_none(tmp_path, conn):
     import import_lineups
     import import_players
 
-    db = tmp_path / "t.db"
-    with sqlite3.connect(db) as conn:
-        conn.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
-        conn.execute("INSERT INTO teams VALUES (7, 'The Outfield')")
-        conn.executescript(import_players.SCHEMA)
+    conn.execute("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(255))")
+    conn.execute("INSERT INTO teams VALUES (7, 'The Outfield')")
+    conn.executescript(import_players.SCHEMA)
+    conn.commit()
 
-    assert refresh.import_lineup_files(tmp_path, db) == 0  # no lineups folder
+    assert refresh.import_lineup_files(tmp_path) == 0  # no lineups folder
 
     folder = tmp_path / "lineups"
     folder.mkdir()
@@ -54,6 +50,5 @@ def test_import_lineup_files_imports_the_folder_and_handles_none(tmp_path):
     )
     (folder / "notes.csv").write_text("")
 
-    assert refresh.import_lineup_files(tmp_path, db) == 1
-    with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT name, slot FROM lineups").fetchall() == [("Liam Hicks", "C")]
+    assert refresh.import_lineup_files(tmp_path) == 1
+    assert [tuple(row) for row in conn.execute("SELECT name, slot FROM lineups").fetchall()] == [("Liam Hicks", "C")]

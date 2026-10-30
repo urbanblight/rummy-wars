@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -18,23 +17,24 @@ def write_map(path, *rows):
     return path
 
 
-def test_import_players_upserts_and_is_idempotent(tmp_path):
-    db = tmp_path / "t.db"
+def test_import_players_upserts_and_is_idempotent(tmp_path, conn):
     source = write_map(
         tmp_path / "map.csv",
         "hicksli01,Liam Hicks,TB,C,25001,680000,123,Liam Hicks,99,Y",
         "oldtimer01,Old Timer,N/A,P,sa1,,,,,N",
     )
-    assert import_players.import_players(source, db) == 2
-    assert import_players.import_players(source, db) == 2
+    assert import_players.import_players(source) == 2
+    assert import_players.import_players(source) == 2
 
     write_map(source, "hicksli01,Liam Hicks,BOS,C,25001,680000,123,Liam Hicks,99,Y")
-    import_players.import_players(source, db)
-    with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT player_id, team, fangraphs_id, mlb_id, active FROM players ORDER BY 1").fetchall() == [
-            ("hicksli01", "BOS", "25001", "680000", 1),
-            ("oldtimer01", None, "sa1", None, 0),  # kept even though it left the map
-        ]
+    import_players.import_players(source)
+    conn.commit()
+    assert [tuple(row) for row in conn.execute(
+        "SELECT player_id, team, fangraphs_id, mlb_id, active FROM players ORDER BY 1"
+    ).fetchall()] == [
+        ("hicksli01", "BOS", "25001", "680000", 1),
+        ("oldtimer01", None, "sa1", None, 0),  # kept even though it left the map
+    ]
 
 
 def test_load_players_requires_the_id_columns(tmp_path):
@@ -45,7 +45,7 @@ def test_load_players_requires_the_id_columns(tmp_path):
 
 
 def test_main_reports_a_missing_file(tmp_path, capsys):
-    assert import_players.main(["--source", str(tmp_path / "nope.csv"), "--db", str(tmp_path / "t.db")]) == 1
+    assert import_players.main(["--source", str(tmp_path / "nope.csv")]) == 1
     assert "Missing input file" in capsys.readouterr().err
 
 

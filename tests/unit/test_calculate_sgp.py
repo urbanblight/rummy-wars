@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -25,11 +24,10 @@ def test_season_slope_is_positive_for_lower_is_better_categories():
     assert calculate_sgp.season_slope([30, 20, 10], [3, 2, 1]) == pytest.approx(10.0)
 
 
-def test_calculate_uses_only_full_year_snapshots():
-    conn = sqlite3.connect(":memory:")
+def test_calculate_uses_only_full_year_snapshots(conn):
     conn.execute(
-        "CREATE TABLE standings_categories (season_year, as_of_date, team_id, category,"
-        " category_type, value, points, points_change)"
+        "CREATE TABLE standings_categories (season_year INT, as_of_date VARCHAR(10), team_id INT,"
+        " category VARCHAR(64), category_type VARCHAR(16), value DOUBLE, points DOUBLE, points_change DOUBLE)"
     )
     rows = [
         (2025, "2025-12-31", t, "HR", "batting", 10 * t, t, 0) for t in (1, 2, 3)
@@ -38,7 +36,7 @@ def test_calculate_uses_only_full_year_snapshots():
     ] + [
         (2026, "2026-06-01", t, "HR", "batting", 99 * t, t, 0) for t in (1, 2, 3)
     ]
-    conn.executemany("INSERT INTO standings_categories VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    conn.executemany("INSERT INTO standings_categories VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", rows)
 
     (category, kind, factor, first, last, *_), = calculate_sgp.calculate(conn, 0.5)
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Import the SFBB player ID map into a sqlite database.
+"""Import the SFBB player ID map into the MySQL database.
 
 Usage:
-    python scripts/import_players.py [--source URL_OR_CSV] [--db data/stats.db]
+    python scripts/import_players.py [--source URL_OR_CSV]
 
 Reads the Smart Fantasy Baseball player ID map (default: the live CSV download; pass a
 local file to work offline) and upserts the ``players`` table, keyed by the map's
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import io
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -25,6 +24,9 @@ import pandas as pd
 import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import db  # noqa: E402
 DEFAULT_SOURCE = "https://www.smartfantasybaseball.com/PLAYERIDMAPCSV"
 
 # Map column (first one present wins) -> players column.
@@ -45,19 +47,19 @@ REQUIRED = ("IDPLAYER", "PLAYERNAME")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
-    player_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    cbs_name TEXT,
-    team TEXT,
-    pos TEXT,
-    active INTEGER NOT NULL DEFAULT 0,
-    fangraphs_id TEXT,
-    cbs_id TEXT,
-    mlb_id TEXT,
-    bp_id TEXT
+    player_id VARCHAR(32) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    cbs_name VARCHAR(255),
+    team VARCHAR(16),
+    pos VARCHAR(32),
+    active INT NOT NULL DEFAULT 0,
+    fangraphs_id VARCHAR(32),
+    cbs_id VARCHAR(32),
+    mlb_id VARCHAR(32),
+    bp_id VARCHAR(32),
+    INDEX idx_players_name (name),
+    INDEX idx_players_cbs_name (cbs_name)
 );
-CREATE INDEX IF NOT EXISTS idx_players_name ON players (name);
-CREATE INDEX IF NOT EXISTS idx_players_cbs_name ON players (cbs_name);
 """
 
 FIELDS = ("player_id", "name", "cbs_name", "team", "pos", "active", "fangraphs_id", "cbs_id", "mlb_id", "bp_id")
@@ -85,15 +87,14 @@ def load_players(source: str | Path) -> pd.DataFrame:
     return out[list(FIELDS)].astype(object).where(out[list(FIELDS)].notna(), None).reset_index(drop=True)
 
 
-def import_players(source: str | Path, db_path: Path) -> int:
+def import_players(source: str | Path) -> int:
     players = load_players(source)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    updates = ", ".join(f"{field} = excluded.{field}" for field in FIELDS[1:])
-    with sqlite3.connect(db_path) as conn:
+    updates = ", ".join(f"{field} = new.{field}" for field in FIELDS[1:])
+    with db.connect() as conn:
         conn.executescript(SCHEMA)
         conn.executemany(
-            f"INSERT INTO players ({', '.join(FIELDS)}) VALUES ({', '.join('?' * len(FIELDS))}) "  # noqa: S608
-            f"ON CONFLICT(player_id) DO UPDATE SET {updates}",
+            f"INSERT INTO players ({', '.join(FIELDS)}) VALUES ({', '.join(['%s'] * len(FIELDS))}) AS new "  # noqa: S608
+            f"ON DUPLICATE KEY UPDATE {updates}",
             players.itertuples(index=False, name=None),
         )
     return len(players)
@@ -102,17 +103,16 @@ def import_players(source: str | Path, db_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="player ID map URL or CSV file")
-    parser.add_argument("--db", type=Path, default=REPO_ROOT / "data" / "stats.db")
     args = parser.parse_args(argv)
     try:
-        count = import_players(args.source, args.db)
+        count = import_players(args.source)
     except FileNotFoundError as error:
         print(f"Missing input file: {error.filename}", file=sys.stderr)
         return 1
-    except (ValueError, OSError, requests.RequestException, pd.errors.ParserError) as error:
+    except (ValueError, OSError, requests.RequestException, pd.errors.ParserError, db.Error, db.NotConfigured) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Imported {count} players into {args.db}")
+    print(f"Imported {count} players")
     return 0
 
 

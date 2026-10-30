@@ -3,7 +3,7 @@
   {% set cols = stat_columns(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th>{% if show_roster %}<th class="tight">Slot</th>{% endif %}<th class="tight">Team</th><th class="num tight">CBS</th><th class="num tight">Rank</th><th class="num sgp-vr">SGP VR</th>{% for col in cols %}<th class="num stat">{{ col }}</th>{% endfor %}</tr></thead>
+      <thead><tr><th>Player</th>{% if show_roster %}<th class="tight">Slot</th>{% endif %}<th class="tight">Team</th><th class="num tight">BP</th><th class="num tight">CBS</th><th class="num tight">Rank</th><th class="num sgp-vr">SGP VR</th>{% for col in cols %}<th class="num stat">{{ col }}</th>{% endfor %}</tr></thead>
       <tbody>
         {{ player_rows(players, show_roster, notices) }}
       </tbody>
@@ -20,6 +20,8 @@
             <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}<td class="narrow tight">{{ player.team }}</td>
+            {% set bp = player.player_id|bp_rank %}
+            <td class="num tight">{% if bp %}{{ bp[0] }}{% if bp[1] %} <small class="{{ 'pos' if bp[1] > 0 else 'neg' }}">{{ '%+d'|format(bp[1]) }}</small>{% endif %}{% endif %}</td>
             <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
             <td class="num narrow tight">{% if vr %}{{ vr[1] }}{% endif %}</td>
             <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>

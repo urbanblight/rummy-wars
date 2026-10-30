@@ -14,10 +14,10 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
-# Cloud Run provides PORT, and SECRET_KEY is loaded from Secret Manager below.
+# Cloud Run provides PORT; SECRET_KEY and DATABASE_URL are loaded from Secret Manager below.
 ENV_VARS=$(awk -F= '
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    $1 == "SECRET_KEY" || $1 == "PORT" { next }
+    $1 == "SECRET_KEY" || $1 == "DATABASE_URL" || $1 == "PORT" { next }
     { print }
 ' .env | paste -sd, -)
 
@@ -41,5 +41,5 @@ gcloud run deploy rw-service-beta \
     --image us-west1-docker.pkg.dev/rummy-wars/containers/rw-app@$DIGEST \
     --region us-west1 \
     --set-env-vars "$ENV_VARS" \
-    --set-secrets SECRET_KEY=SECRET_KEY:latest \
+    --set-secrets SECRET_KEY=SECRET_KEY:latest,DATABASE_URL=DATABASE_URL:latest \
     --allow-unauthenticated

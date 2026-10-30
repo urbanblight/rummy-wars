@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import os
 import re
-import sqlite3
+import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import pandas as pd
 
 try:
-    from . import models
+    from . import db, models
     from .player_ids import PlayerIndex, normalize_name
 except ImportError:  # pragma: no cover - supports direct module imports
+    import db
     import models
     from player_ids import PlayerIndex, normalize_name
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "stats.db"
 POOL_SIZE = 250
 UNRANKED = 9999
 DEFAULT_ACTIVE_SLOTS = 10
@@ -58,12 +57,12 @@ def _slug(cat: str) -> str:
 
 
 def z_column(cat: str) -> str:
-    """Sqlite-safe column name holding a category's z-score, e.g. ``W+QS`` -> ``z_W_QS``."""
+    """Plain-identifier column name holding a category's z-score, e.g. ``W+QS`` -> ``z_W_QS``."""
     return "z_" + _slug(cat)
 
 
 def sgp_column(cat: str) -> str:
-    """Sqlite-safe column name holding a category's SGP, e.g. ``W+QS`` -> ``sgp_W_QS``."""
+    """Plain-identifier column name holding a category's SGP, e.g. ``W+QS`` -> ``sgp_W_QS``."""
     return "sgp_" + _slug(cat)
 
 
@@ -123,11 +122,11 @@ def compute_z_scores(
     return df
 
 
-def load_sgp_factors(conn: sqlite3.Connection) -> dict[str, float]:
+def load_sgp_factors(conn: db.Connection) -> dict[str, float]:
     """Category -> stat per standings point from ``sgp_factors`` (empty if not calculated)."""
     try:
         return dict(conn.execute("SELECT category, factor FROM sgp_factors").fetchall())
-    except sqlite3.OperationalError:
+    except db.SchemaError:
         return {}
 
 
@@ -149,39 +148,38 @@ def lineup_volume(df: pd.DataFrame, playing_time: str, slots: int) -> float:
     return top[playing_time].sum() / teams if teams else 0.0
 
 
-def standings_innings(conn: sqlite3.Connection) -> float | None:
+def standings_innings(conn: db.Connection) -> float | None:
     """Average innings per team in the latest full-year standings, or None if none are imported."""
     row = conn.execute(
         """
         SELECT AVG(value) FROM standings_categories
-        WHERE category = 'INN' AND as_of_date = season_year || '-12-31'
+        WHERE category = 'INN' AND as_of_date = CONCAT(season_year, '-12-31')
           AND season_year = (SELECT MAX(season_year) FROM standings_categories
-                             WHERE category = 'INN' AND as_of_date = season_year || '-12-31')
+                             WHERE category = 'INN' AND as_of_date = CONCAT(season_year, '-12-31'))
         """
     ).fetchone()
     return row[0] if row else None
 
 
-def latest_active_lineups(conn: sqlite3.Connection) -> pd.DataFrame | None:
+def latest_active_lineups(conn: db.Connection) -> pd.DataFrame | None:
     """Players in each team's active slots in its most recent imported lineup, or None.
 
     Columns: ``team_id``, ``player_id``, ``player_type`` and ``slot``. Needs the ``lineups``
     table from ``scripts/import_lineups.py``.
     """
     try:
-        lineups = pd.read_sql_query(
+        lineups = conn.read_sql(
             """
             SELECT l.team_id, l.player_id, l.player_type, l.slot
             FROM lineups l
-            JOIN (SELECT team_id, MAX(effective_date || printf('%06d', IFNULL(period_id, 0))) AS latest
+            JOIN (SELECT team_id, MAX(CONCAT(effective_date, LPAD(IFNULL(period_id, 0), 6, '0'))) AS latest
                   FROM lineups GROUP BY team_id) m
               ON m.team_id = l.team_id
-             AND l.effective_date || printf('%06d', IFNULL(l.period_id, 0)) = m.latest
+             AND CONCAT(l.effective_date, LPAD(IFNULL(l.period_id, 0), 6, '0')) = m.latest
             WHERE l.status = 'Active' AND l.player_id IS NOT NULL
-            """,
-            conn,
+            """
         )
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+    except (*db.SchemaError, pd.errors.DatabaseError):
         return None
     return lineups if not lineups.empty else None
 
@@ -212,7 +210,7 @@ def active_lineup_volume(df: pd.DataFrame, lineups: pd.DataFrame, player_type: s
     return float(matched.groupby("team_id")[playing_time].sum().mean())
 
 
-def roster_coverage(conn: sqlite3.Connection, lineups: pd.DataFrame) -> float:
+def roster_coverage(conn: db.Connection, lineups: pd.DataFrame) -> float:
     """How much of a team's season innings its final active lineup accounts for, as a multiplier.
 
     The lineups are a snapshot, so players who threw innings earlier in the season for the
@@ -221,14 +219,14 @@ def roster_coverage(conn: sqlite3.Connection, lineups: pd.DataFrame) -> float:
     """
     try:
         innings = standings_innings(conn)
-        pitching = pd.read_sql_query("SELECT team_id, player_id, INNs FROM pitching", conn)
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        pitching = conn.read_sql("SELECT team_id, player_id, INNs FROM pitching")
+    except (*db.SchemaError, pd.errors.DatabaseError):
         return 1.0
     active = active_lineup_volume(pitching, lineups, "Pitcher")
     return max(innings / active, 1.0) if innings and active else 1.0
 
 
-def team_volume(conn: sqlite3.Connection, df: pd.DataFrame, player_type: str) -> float:
+def team_volume(conn: db.Connection, df: pd.DataFrame, player_type: str) -> float:
     """Typical team playing time (AB or innings), from the best source available.
 
     Pitchers use the real team innings in the standings. Otherwise, and for batters, the
@@ -240,7 +238,7 @@ def team_volume(conn: sqlite3.Connection, df: pd.DataFrame, player_type: str) ->
     if player_type == "Pitcher":
         try:
             innings = standings_innings(conn)
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             innings = None
         if innings:
             return innings
@@ -444,7 +442,7 @@ def compute_above_replacement(
 
 
 def score_frame(
-    conn: sqlite3.Connection, df: pd.DataFrame, player_type: str, factors: dict[str, float]
+    conn: db.Connection, df: pd.DataFrame, player_type: str, factors: dict[str, float]
 ) -> pd.DataFrame:
     """Add z-scores, SGP (when factors exist), above-replacement values and their ranks to ``df``.
 
@@ -474,21 +472,21 @@ def score_frame(
     return df
 
 
-def save_z_scores(db_path: str | Path) -> None:
+def save_z_scores() -> None:
     """Compute and store z-scores, SGP (when factors exist), above-replacement values and ranks in the batting and pitching tables."""
-    with sqlite3.connect(db_path) as conn:
+    with db.connect() as conn:
         factors = load_sgp_factors(conn)
         for player_type, (table, _columns) in TABLES.items():
             if not scoring_categories(player_type):
                 continue
-            df = pd.read_sql_query(f"SELECT * FROM {table}", conn)  # noqa: S608 - fixed table names
+            df = conn.read_sql(f"SELECT * FROM {table}")  # noqa: S608 - fixed table names
             df = score_frame(conn, df, player_type, factors)
             if "team_id" in df:
                 df["team_id"] = df["team_id"].astype("Int64")  # keep integers despite NULLs
-            df.to_sql(table, conn, if_exists="replace", index=False)
+            conn.write_frame(df, table)
 
 
-def scoring_stat(row: sqlite3.Row, cat: str, columns: dict[str, str]) -> float | None:
+def scoring_stat(row: db.Row, cat: str, columns: dict[str, str]) -> float | None:
     """A player's raw value in one scoring category, derived like ``_add_category``."""
     if cat == "W+QS":
         wins, quality_starts = row["W"], row["QS"]
@@ -499,7 +497,7 @@ def scoring_stat(row: sqlite3.Row, cat: str, columns: dict[str, str]) -> float |
     return row[columns.get(cat, cat)]
 
 
-def _above_replacement(row: sqlite3.Row, column, categories: list[str]) -> dict:
+def _above_replacement(row: db.Row, column, categories: list[str]) -> dict:
     """Total and per-category above-replacement values with ranks, as ``{key: (value, rank)}``."""
     result = {}
     for key in (TOTAL, *categories):
@@ -520,11 +518,7 @@ class ScoreContext:
     has_sgp_repl: bool
 
 
-def stats_db_path(db_path: str | Path | None = None) -> Path:
-    return Path(db_path or os.getenv("STATS_DB") or DEFAULT_DB)
-
-
-def _score_context(rows: list[sqlite3.Row], player_type: str) -> ScoreContext | None:
+def _score_context(rows: list[db.Row], player_type: str) -> ScoreContext | None:
     """Describe the stored score columns, or None if the table can't be used for this player type."""
     categories = scoring_categories(player_type)
     if not categories:
@@ -547,7 +541,7 @@ def _int_or_none(value: float | None) -> int | None:
     return None if value is None or value != value else int(value)
 
 
-def attach_scores(player: models.Player, row: sqlite3.Row, context: ScoreContext, stats: bool = True) -> None:
+def attach_scores(player: models.Player, row: db.Row, context: ScoreContext, stats: bool = True) -> None:
     """Copy the stored scoring stats (unless ``stats`` is False), z-scores, SGP and above-replacement values onto ``player``."""
     categories = context.categories
     if stats:
@@ -571,33 +565,32 @@ def attach_scores(player: models.Player, row: sqlite3.Row, context: ScoreContext
         player.sgp_above_replacement = _above_replacement(row, sgp_column, categories)
 
 
-def _read_table(conn: sqlite3.Connection, table: str, where: str = "", params: tuple = ()) -> list[sqlite3.Row] | None:
+def _read_table(conn: db.Connection, table: str, where: str = "", params: tuple = ()) -> list[db.Row] | None:
     try:
         return conn.execute(f"SELECT * FROM {table} {where}", params).fetchall()  # noqa: S608 - fixed table names
-    except sqlite3.OperationalError:
+    except db.SchemaError:
         return None
 
 
-def _player_index(conn: sqlite3.Connection) -> PlayerIndex:
+def _player_index(conn: db.Connection) -> PlayerIndex:
     try:
         return PlayerIndex.load(conn)
     except RuntimeError:  # no players table: nothing can be matched
         return PlayerIndex([])
 
 
-def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None) -> None:
+def evaluate_roster(roster: models.TeamRoster) -> None:
     """Attach the stored z-scores, SGP and ranks to each rostered player in place.
 
     Reads the columns written by ``save_z_scores``; players missing from the
     stats pool (or without playing time) are left without scores. SGP is
     attached only when the database has it.
     """
-    db_path = stats_db_path(db_path)
-    if not db_path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return
     index: PlayerIndex | None = None
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with conn:
         for player_type, (table, _columns) in TABLES.items():
             players = [p for p in roster.players if p.player_type == player_type]
             if not players:
@@ -606,7 +599,7 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
             context = _score_context(rows, player_type) if rows is not None else None
             if context is None or (rows and "player_id" not in rows[0].keys()):
                 continue  # stats imported before player ids existed; re-run scripts/refresh.py
-            by_id: dict[str, list[sqlite3.Row]] = {}
+            by_id: dict[str, list[db.Row]] = {}
             for row in rows:
                 if row["player_id"] is not None:
                     by_id.setdefault(row["player_id"], []).append(row)
@@ -622,9 +615,7 @@ def evaluate_roster(roster: models.TeamRoster, db_path: str | Path | None = None
                     attach_scores(player, matches[0], context)
 
 
-def load_team_lineup(
-    team_id: int, db_path: str | Path | None = None
-) -> tuple[dict, models.TeamRoster] | None:
+def load_team_lineup(team_id: int) -> tuple[dict, models.TeamRoster] | None:
     """A fantasy team's most recent imported lineup as a scored roster, in lineup order.
 
     Returns ``(lineup, roster)`` where ``lineup`` is ``{"effective_date", "period_id", "captured_at"}``
@@ -632,24 +623,23 @@ def load_team_lineup(
     recorded) and every player carries the lineup's slot and
     status plus any stored scores. Returns None if the team has no imported lineup.
     """
-    db_path = stats_db_path(db_path)
-    if not db_path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return None
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with conn:
         try:
             rows = conn.execute(
                 """
                 SELECT * FROM lineups
-                WHERE team_id = ?
-                  AND effective_date || printf('%06d', IFNULL(period_id, 0)) = (
-                      SELECT MAX(effective_date || printf('%06d', IFNULL(period_id, 0)))
-                      FROM lineups WHERE team_id = ?)
+                WHERE team_id = %s
+                  AND CONCAT(effective_date, LPAD(IFNULL(period_id, 0), 6, '0')) = (
+                      SELECT MAX(CONCAT(effective_date, LPAD(IFNULL(period_id, 0), 6, '0')))
+                      FROM lineups WHERE team_id = %s)
                 ORDER BY slot_order
                 """,
                 (team_id, team_id),
             ).fetchall()
-        except sqlite3.OperationalError:
+        except db.SchemaError:
             return None
     if not rows:
         return None
@@ -665,32 +655,28 @@ def load_team_lineup(
         )
         for row in rows
     ])
-    evaluate_roster(roster, db_path)
+    evaluate_roster(roster)
     captured_at = rows[0]["captured_at"] if "captured_at" in rows[0].keys() else None
     lineup = {"effective_date": rows[0]["effective_date"], "period_id": rows[0]["period_id"], "captured_at": captured_at}
     return lineup, roster
 
 
-def load_team_roster(
-    team_id: int, db_path: str | Path | None = None
-) -> tuple[dict | None, dict[str, list[models.Player]]]:
+def load_team_roster(team_id: int) -> tuple[dict | None, dict[str, list[models.Player]]]:
     """A fantasy team's players in the order of its most recent imported lineup, with scores.
 
     Returns ``(lineup, players)`` (see ``load_team_lineup``) with the players split into
     ``{"Batter": [...], "Pitcher": [...]}``. Without a lineup for the team this falls back
     to ``load_players`` and ``lineup`` is None.
     """
-    loaded = load_team_lineup(team_id, db_path)
+    loaded = load_team_lineup(team_id)
     if loaded is None:
-        return None, load_players(team_id, db_path)
+        return None, load_players(team_id)
     lineup, roster = loaded
     players = {player_type: [p for p in roster.players if p.player_type == player_type] for player_type in TABLES}
     return lineup, players
 
 
-def load_players(
-    team_id: int | None, db_path: str | Path | None = None, limit: int | None = None
-) -> dict[str, list[models.Player]]:
+def load_players(team_id: int | None, limit: int | None = None) -> dict[str, list[models.Player]]:
     """Players from the stats database with their scores, best SGP vs replacement first.
 
     ``team_id`` selects a fantasy team's players, or the free agents when None.
@@ -698,12 +684,11 @@ def load_players(
     players of each type. Returns ``{"Batter": [...], "Pitcher": [...]}``.
     """
     result: dict[str, list[models.Player]] = {player_type: [] for player_type in TABLES}
-    db_path = stats_db_path(db_path)
-    if not db_path.exists():
+    conn = db.connect_or_none()
+    if conn is None:
         return result
-    where, params = ("WHERE team_id = ?", (team_id,)) if team_id is not None else ("WHERE team_id IS NULL", ())
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    where, params = ("WHERE team_id = %s", (team_id,)) if team_id is not None else ("WHERE team_id IS NULL", ())
+    with conn:
         for player_type, (table, _columns) in TABLES.items():
             rows = _read_table(conn, table, where, params)
             context = _score_context(rows, player_type) if rows is not None else None
@@ -731,8 +716,7 @@ def load_players(
 
 
 def load_free_agents(
-    player_type: str, offset: int = 0, limit: int = 50, db_path: str | Path | None = None,
-    position: str | None = None,
+    player_type: str, offset: int = 0, limit: int = 50, position: str | None = None,
 ) -> list[models.Player]:
     """One page of free agents of a type, best SGP vs replacement first.
 
@@ -741,9 +725,6 @@ def load_free_agents(
     """
     if player_type not in TABLES:
         return []
-    db_path = stats_db_path(db_path)
-    if not db_path.exists():
-        return []
     table, _columns = TABLES[player_type]
     playing_time = PLAYING_TIME_COLUMN[player_type]
     rank = f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
@@ -751,15 +732,16 @@ def load_free_agents(
     position_filter = ""
     if position:
         # Positions are stored comma separated, so match whole entries only.
-        position_filter = "AND (',' || REPLACE(IFNULL(positions, ''), ' ', '') || ',') LIKE ? ESCAPE '\\' "
-        escaped = position.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params = (f"%,{escaped},%",)
+        position_filter = "AND FIND_IN_SET(%s, REPLACE(IFNULL(positions, ''), ' ', '')) > 0 "
+        params = (position,)
     where = (
-        f'WHERE team_id IS NULL AND IFNULL("{playing_time}", 0) > 0 {position_filter}'
-        f"ORDER BY {rank} IS NULL, {rank}, name LIMIT ? OFFSET ?"
+        f"WHERE team_id IS NULL AND IFNULL(`{playing_time}`, 0) > 0 {position_filter}"
+        f"ORDER BY {rank} IS NULL, {rank}, name LIMIT %s OFFSET %s"
     )
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    conn = db.connect_or_none()
+    if conn is None:
+        return []
+    with conn:
         rows = _read_table(conn, table, where, (*params, limit, offset))
         context = _score_context(rows, player_type) if rows is not None else None
     if not rows or context is None:
@@ -781,23 +763,51 @@ def load_free_agents(
 
 
 _CBS_IDS: tuple[float, dict[str, str]] | None = None
+CBS_IDS_TTL = 300  # seconds
 
 
-def cbs_ids(db_path: str | Path | None = None) -> dict[str, str]:
-    """Map player ids to CBS ids, reloaded only when the stats database file changes."""
+_BP_RANKS: tuple[float, dict[str, tuple[int, int | None]]] | None = None
+
+
+def bp_ranks() -> dict[str, tuple[int, int | None]]:
+    """Map player ids to Baseball Prospectus dynasty (rank, change) from its latest import, cached like ``cbs_ids``."""
+    global _BP_RANKS
+    now = time.monotonic()
+    if _BP_RANKS is None or now - _BP_RANKS[0] > CBS_IDS_TTL:
+        conn = db.connect_or_none()
+        if conn is None:
+            return {}
+        with conn:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT player_id, `rank`, `change` FROM rankings_dynasty
+                    WHERE source = 'bp' AND player_id IS NOT NULL
+                      AND (season, snapshot) = (
+                          SELECT season, snapshot FROM rankings_dynasty WHERE source = 'bp'
+                          ORDER BY season DESC, snapshot DESC LIMIT 1)
+                    """
+                ).fetchall()
+            except db.SchemaError:
+                rows = []
+        _BP_RANKS = (now, {str(pid): (int(rank), None if change is None else int(change)) for pid, rank, change in rows})
+    return _BP_RANKS[1]
+
+
+def cbs_ids() -> dict[str, str]:
+    """Map player ids to CBS ids, reloaded from the database at most every ``CBS_IDS_TTL`` seconds."""
     global _CBS_IDS
-    db_path = stats_db_path(db_path)
-    try:
-        modified = db_path.stat().st_mtime
-    except OSError:
-        return {}
-    if _CBS_IDS is None or _CBS_IDS[0] != modified:
-        with sqlite3.connect(db_path) as conn:
+    now = time.monotonic()
+    if _CBS_IDS is None or now - _CBS_IDS[0] > CBS_IDS_TTL:
+        conn = db.connect_or_none()
+        if conn is None:
+            return {}
+        with conn:
             try:
                 rows = conn.execute("SELECT player_id, cbs_id FROM players WHERE cbs_id IS NOT NULL AND cbs_id != ''").fetchall()
-            except sqlite3.OperationalError:
+            except db.SchemaError:
                 rows = []
-        _CBS_IDS = (modified, {str(pid): str(cbs) for pid, cbs in rows})
+        _CBS_IDS = (now, {str(pid): str(cbs) for pid, cbs in rows})
     return _CBS_IDS[1]
 
 

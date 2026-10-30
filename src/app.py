@@ -63,6 +63,12 @@ CBS_PLAYER_URL = "https://rummywars.baseball.cbssports.com/players/playerpage/"
 app.jinja_env.globals["cbs_player_url"] = CBS_PLAYER_URL
 
 
+@app.template_filter("bp_rank")
+def bp_rank_filter(player_id: str | None) -> tuple[int, int | None] | None:
+    """The Baseball Prospectus dynasty (rank, change) for a player id, or None when unranked."""
+    return zscores.bp_ranks().get(player_id) if player_id else None
+
+
 @app.template_filter("cbs_id")
 def cbs_id_filter(player_id: str | None) -> str | None:
     """The CBS player id for a player id, or None when unknown."""

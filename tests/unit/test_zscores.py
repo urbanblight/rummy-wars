@@ -21,7 +21,7 @@ def test_no_playing_time_gets_no_scores_or_rank():
     assert out["z_HR_rank"].tolist()[:2] == [2, 1]
 
 
-def test_z_column_is_sqlite_safe():
+def test_z_column_is_a_plain_identifier():
     assert zscores.z_column("Kd9") == "z_Kd9"
     assert zscores.z_column("W+QS") == "z_W_QS"
 
@@ -69,7 +69,7 @@ def test_compute_sgp_leaves_out_players_without_playing_time_and_missing_factors
     assert "sgp_HR" not in zscores.compute_sgp(df, ["HR"], {}, {}, "AB", 100)
 
 
-def test_sgp_column_is_sqlite_safe():
+def test_sgp_column_is_a_plain_identifier():
     assert zscores.sgp_column("W+QS") == "sgp_W_QS"
 
 
@@ -82,12 +82,11 @@ def test_lineup_volume_sums_only_the_top_slots_of_each_team():
     assert zscores.lineup_volume(df, "AB", 2) == pytest.approx((1100 + 700) / 2)
 
 
-def test_team_volume_uses_standings_innings_for_pitchers(tmp_path):
-    import sqlite3
-
-    conn = sqlite3.connect(tmp_path / "t.db")
-    conn.execute("CREATE TABLE standings_categories (season_year, as_of_date, category, value)")
-    conn.executemany("INSERT INTO standings_categories VALUES (?, ?, 'INN', ?)", [
+def test_team_volume_uses_standings_innings_for_pitchers(conn):
+    conn.execute(
+        "CREATE TABLE standings_categories (season_year INT, as_of_date VARCHAR(10), category VARCHAR(64), value DOUBLE)"
+    )
+    conn.executemany("INSERT INTO standings_categories VALUES (%s, %s, 'INN', %s)", [
         (2025, "2025-12-31", 1000.0), (2026, "2026-12-31", 1200.0), (2026, "2026-12-31", 1300.0),
         (2026, "2026-06-01", 5.0),
     ])
@@ -98,11 +97,8 @@ def test_team_volume_uses_standings_innings_for_pitchers(tmp_path):
     assert zscores.team_volume(conn, pd.DataFrame({"team_id": [1], "AB": [500]}), "Batter") == 500
 
 
-def test_team_volume_falls_back_to_lineup_without_standings(tmp_path):
-    import sqlite3
-
+def test_team_volume_falls_back_to_lineup_without_standings(conn):
     df = pd.DataFrame({"team_id": [1, 1], "INNs": [100.0, 50.0]})
-    conn = sqlite3.connect(tmp_path / "t.db")
     assert zscores.team_volume(conn, df, "Pitcher") == pytest.approx(150.0)
 
 
@@ -183,12 +179,8 @@ def test_replacement_level_averages_the_five_best_free_agents():
     assert out.loc[0, "z_total_above_replacement"] == 9.0 - 4.0
 
 
-def test_scoring_stat_derives_category_values_from_a_stats_row():
-    import sqlite3
-
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT 6 AS W, 4 AS QS, 90 AS K, 60.0 AS INNs, .27 AS AVG, 12 AS HR").fetchone()
+def test_scoring_stat_derives_category_values_from_a_stats_row(conn):
+    row = conn.execute("SELECT 6 AS W, 4 AS QS, 90 AS K, 60.0e0 AS INNs, 0.27e0 AS AVG, 12 AS HR").fetchone()
 
     assert zscores.scoring_stat(row, "W+QS", {}) == 10
     assert zscores.scoring_stat(row, "Kd9", {}) == 13.5
