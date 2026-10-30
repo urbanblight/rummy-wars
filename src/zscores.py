@@ -715,34 +715,96 @@ def load_players(team_id: int | None, limit: int | None = None) -> dict[str, lis
     return result
 
 
+FREE_AGENT_DEFAULT_SORT = "rank"
+
+
+def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -> tuple[str, bool]:
+    """Validate a free-agent sort key and direction, returning ``(key, descending)``.
+
+    Keys are ``name``, ``bp``, ``cbs``, ``rank``, ``vr`` or ``stat:<category>``. Without a direction the
+    natural one applies: best first, so highest for counting stats and SGP VR, lowest for ranks and ERA/WHIP.
+    Raises ``ValueError`` for an unknown key or direction.
+    """
+    key = sort or FREE_AGENT_DEFAULT_SORT
+    if key.startswith("stat:"):
+        category = key[5:]
+        if category not in scoring_categories(player_type):
+            raise ValueError(f"unknown sort {key!r}")
+        natural = category not in LOWER_IS_BETTER
+    elif key in ("name", "bp", "cbs", "rank", "vr"):
+        natural = key == "vr"
+    else:
+        raise ValueError(f"unknown sort {key!r}")
+    if direction not in (None, "", "asc", "desc"):
+        raise ValueError(f"unknown direction {direction!r}")
+    return key, natural if not direction else direction == "desc"
+
+
+def _free_agent_sort_expression(player_type: str, key: str) -> str:
+    """The SQL expression a free-agent sort key orders by."""
+    if key == "name":
+        return "name"
+    if key == "cbs":
+        return "`rank`"
+    if key == "rank":
+        return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
+    if key == "vr":
+        return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}"
+    category = key[5:]
+    if category == "W+QS":
+        return "(W + QS)"
+    if category == "Kd9":
+        return "(K * 9 / NULLIF(INNs, 0))"
+    return f"`{TABLES[player_type][1].get(category, category)}`"
+
+
 def load_free_agents(
     player_type: str, offset: int = 0, limit: int = 50, position: str | None = None,
+    sort: str | None = None, direction: str | None = None,
 ) -> list[models.Player]:
-    """One page of free agents of a type, best SGP vs replacement first.
+    """One page of free agents of a type, best SGP vs replacement first unless ``sort`` says otherwise.
 
-    Sorting and paging happen in the database so only the requested rows are read.
-    Free agents without playing time are left out; those without a rank come last.
+    Sorting (see ``free_agent_sort``) and paging cover every free agent, not just those already shown, and
+    happen in the database so only the requested rows are read; BP rankings live in another table, so that
+    sort orders the matching ids in Python first. Free agents without playing time are left out; those with
+    no value to sort by come last.
     """
     if player_type not in TABLES:
         return []
+    key, descending = free_agent_sort(player_type, sort, direction)
     table, _columns = TABLES[player_type]
     playing_time = PLAYING_TIME_COLUMN[player_type]
-    rank = f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
     params: tuple = ()
     position_filter = ""
     if position:
         # Positions are stored comma separated, so match whole entries only.
         position_filter = "AND FIND_IN_SET(%s, REPLACE(IFNULL(positions, ''), ' ', '')) > 0 "
         params = (position,)
-    where = (
-        f"WHERE team_id IS NULL AND IFNULL(`{playing_time}`, 0) > 0 {position_filter}"
-        f"ORDER BY {rank} IS NULL, {rank}, name LIMIT %s OFFSET %s"
-    )
+    base = f"WHERE team_id IS NULL AND IFNULL(`{playing_time}`, 0) > 0 {position_filter}"
     conn = db.connect_or_none()
     if conn is None:
         return []
     with conn:
-        rows = _read_table(conn, table, where, (*params, limit, offset))
+        if key == "bp":
+            try:
+                found = conn.execute(f"SELECT player_id, name FROM {table} {base}", params).fetchall()  # noqa: S608
+            except db.SchemaError:
+                return []
+            ranks = bp_ranks()
+            ranked = sorted((r for r in found if str(r["player_id"]) in ranks), key=lambda r: (ranks[str(r["player_id"])][0], r["name"]), reverse=descending)
+            unranked = sorted((r for r in found if str(r["player_id"]) not in ranks), key=lambda r: r["name"])
+            ids = [r["player_id"] for r in (ranked + unranked)[offset:offset + limit]]
+            if not ids:
+                return []
+            marks = ", ".join(["%s"] * len(ids))
+            rows = _read_table(conn, table, f"WHERE player_id IN ({marks})", tuple(ids))
+            if rows is not None:
+                by_id = {r["player_id"]: r for r in rows}
+                rows = [by_id[i] for i in ids if i in by_id]
+        else:
+            expression = _free_agent_sort_expression(player_type, key)
+            order = f"ORDER BY {expression} IS NULL, {expression} {'DESC' if descending else 'ASC'}, name LIMIT %s OFFSET %s"
+            rows = _read_table(conn, table, base + order, (*params, limit, offset))
         context = _score_context(rows, player_type) if rows is not None else None
     if not rows or context is None:
         return []

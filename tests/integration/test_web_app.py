@@ -75,21 +75,31 @@ class WebAppIntegrationTests(unittest.TestCase):
         load.return_value = []
         response = self.client.get("/free-agents?type=pitchers")
         self.assertEqual(response.status_code, 200)
-        load.assert_called_once_with("Pitcher", 0, FREE_AGENT_PAGE_SIZE + 1, position=None)
+        load.assert_called_once_with("Pitcher", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="rank", direction="asc")
         self.assertIn("No free agents found.", response.get_data(as_text=True))
 
         rows = self.client.get("/free-agents/rows?type=batters&offset=50")
         self.assertEqual(rows.status_code, 200)
         self.assertEqual(rows.headers["X-Has-More"], "0")
-        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None)
+        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="rank", direction="asc")
+
+    @patch("zscores.load_free_agents")
+    def test_free_agents_sort_is_passed_through_and_headers_link(self, load):
+        load.return_value = []
+        html = self.client.get("/free-agents?type=batters&sort=stat%3AHR&dir=asc").get_data(as_text=True)
+        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="stat:HR", direction="asc")
+        self.assertIn('data-sort="stat:HR" data-dir="asc"', html)
+        self.client.get("/free-agents/rows?type=batters&sort=vr&offset=50")
+        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="vr", direction="desc")
+        self.assertEqual(self.client.get("/free-agents?sort=bogus").status_code, 404)
 
     @patch("zscores.load_free_agents")
     def test_free_agents_filter_by_position(self, load):
         load.return_value = []
         self.client.get("/free-agents?type=batters&position=SS")
-        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position="SS")
+        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position="SS", sort="rank", direction="asc")
         self.client.get("/free-agents/rows?type=pitchers&position=RP&offset=50")
-        load.assert_called_with("Pitcher", 50, FREE_AGENT_PAGE_SIZE + 1, position="RP")
+        load.assert_called_with("Pitcher", 50, FREE_AGENT_PAGE_SIZE + 1, position="RP", sort="rank", direction="asc")
         self.assertEqual(self.client.get("/free-agents?type=pitchers&position=SS").status_code, 404)
 
     def test_free_agents_rejects_unknown_type_and_negative_offset(self):

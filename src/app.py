@@ -210,24 +210,34 @@ FREE_AGENT_POSITIONS = {
 }
 
 
-def _free_agent_page(kind: str, offset: int, position: str):
+def _free_agent_page(kind: str, offset: int, position: str, sort: str = "", direction: str = ""):
     player_type = FREE_AGENT_TYPES.get(kind)
     if player_type is None or offset < 0 or (position and position not in FREE_AGENT_POSITIONS[kind]):
         abort(404)
+    try:
+        key, descending = zscores.free_agent_sort(player_type, sort, direction)
+    except ValueError:
+        abort(404)
     # One extra row tells whether another page follows.
-    fetched = zscores.load_free_agents(player_type, offset, FREE_AGENT_PAGE_SIZE + 1, position=position or None)
-    return fetched[:FREE_AGENT_PAGE_SIZE], len(fetched) > FREE_AGENT_PAGE_SIZE
+    fetched = zscores.load_free_agents(
+        player_type, offset, FREE_AGENT_PAGE_SIZE + 1, position=position or None, sort=key, direction="desc" if descending else "asc",
+    )
+    return fetched[:FREE_AGENT_PAGE_SIZE], len(fetched) > FREE_AGENT_PAGE_SIZE, key, descending
 
 
 @app.get("/free-agents")
 def free_agents():
     kind = request.args.get("type", "batters")
     position = request.args.get("position", "")
-    players, has_more = _free_agent_page(kind, 0, position)
+    players, has_more, sort, descending = _free_agent_page(
+        kind, 0, position, request.args.get("sort", ""), request.args.get("dir", ""),
+    )
     return render_template(
         "free_agents.html", kind=kind, players=players, has_more=has_more,
         position=position, positions=FREE_AGENT_POSITIONS.get(kind, []),
         page_size=FREE_AGENT_PAGE_SIZE, offseason=MODE == "offseason",
+        sort=sort, sort_dir="desc" if descending else "asc",
+        sort_base=url_for("free_agents", type=kind, position=position),
     )
 
 
@@ -235,7 +245,9 @@ def free_agents():
 def free_agent_rows():
     kind = request.args.get("type", "batters")
     offset = request.args.get("offset", 0, type=int)
-    players, has_more = _free_agent_page(kind, offset, request.args.get("position", ""))
+    players, has_more, _sort, _descending = _free_agent_page(
+        kind, offset, request.args.get("position", ""), request.args.get("sort", ""), request.args.get("dir", ""),
+    )
     html = render_template("_free_agent_rows.html", players=players)
     return html, 200, {"X-Has-More": "1" if has_more else "0"}
 

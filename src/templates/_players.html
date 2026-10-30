@@ -1,9 +1,19 @@
 {# Shared player list pieces: a table of scored players and the advanced stats modal that goes with it. #}
-{% macro player_table(players, show_roster=True, notices=none) %}
+{% macro sort_header(label, key, sort, css="") %}
+  {%- if sort -%}
+    {%- set active = sort.key == key -%}
+    {%- set next_dir = ('asc' if sort.dir == 'desc' else 'desc') if active else '' -%}
+    <th{% if css %} class="{{ css }}"{% endif %}{% if active %} aria-sort="{{ 'descending' if sort.dir == 'desc' else 'ascending' }}"{% endif %}><a class="sort-link" href="{{ sort.base }}&sort={{ key|urlencode }}{% if next_dir %}&dir={{ next_dir }}{% endif %}">{{ label }}{% if active %} <span aria-hidden="true">{{ '▼' if sort.dir == 'desc' else '▲' }}</span>{% endif %}</a></th>
+  {%- else -%}
+    <th{% if css %} class="{{ css }}"{% endif %}>{{ label }}</th>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro player_table(players, show_roster=True, notices=none, sort=none) %}
   {% set cols = stat_columns(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th>{% if show_roster %}<th class="tight">Slot</th>{% endif %}<th class="tight">Team</th><th class="num tight">BP</th><th class="num tight">CBS</th><th class="num tight">Rank</th><th class="num sgp-vr">SGP VR</th>{% for col in cols %}<th class="num stat">{{ col }}</th>{% endfor %}</tr></thead>
+      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('BP', 'bp', sort, 'num tight') }}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
       <tbody>
         {{ player_rows(players, show_roster, notices) }}
       </tbody>
@@ -17,11 +27,11 @@
           <tr>
             {% set found = notices.get(player.name) if notices else none %}
             {% set cbs = player.player_id|cbs_id %}
-            <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
+            <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
-            {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}<td class="narrow tight">{{ player.team }}</td>
+            {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}
             {% set bp = player.player_id|bp_rank %}
-            <td class="num tight">{% if bp %}{{ bp[0] }}{% if bp[1] %} <small class="{{ 'pos' if bp[1] > 0 else 'neg' }}">{{ '%+d'|format(bp[1]) }}</small>{% endif %}{% endif %}</td>
+            <td class="num tight">{% if bp %}<span class="{{ 'pos' if bp[1] and bp[1] > 0 else ('neg' if bp[1] and bp[1] < 0 else '') }}">{{ bp[0] }}</span>{% endif %}</td>
             <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
             <td class="num narrow tight">{% if vr %}{{ vr[1] }}{% endif %}</td>
             <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
