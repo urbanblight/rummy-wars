@@ -33,9 +33,9 @@
             {% set bp = player.player_id|bp_rank %}
             <td class="num tight">{% if bp %}<span class="{{ 'pos' if bp[1] and bp[1] > 0 else ('neg' if bp[1] and bp[1] < 0 else '') }}">{{ bp[0] }}</span>{% endif %}</td>
             <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
-            <td class="num narrow tight">{% if vr %}{{ vr[1] }}{% endif %}</td>
-            <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 0.005 else ('neg' if vr[0] < -0.005 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
-            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span class="{{ 'pos' if cat_vr and cat_vr[0] > 0.005 else ('neg' if cat_vr and cat_vr[0] < -0.005 else '') }}">{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
+            <td class="num tight sgp-vr">{% if vr %}{{ vr[1] }}{% endif %}</td>
+            <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 1 else ('neg' if vr[0] < -1 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
+            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span class="{{ 'pos' if cat_vr and cat_vr[0] > 1 else ('neg' if cat_vr and cat_vr[0] < -1 else '') }}">{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
           </tr>
         {% endfor %}
 {% endmacro %}
@@ -86,7 +86,7 @@
   (function () {
     var modal = document.getElementById('adv-modal');
     function fmt(v) { return (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(2); }
-    function cls(v) { return v > 0.005 ? 'pos' : (v < -0.005 ? 'neg' : ''); }
+    function cls(v) { return v > 1 ? 'pos' : (v < -1 ? 'neg' : ''); }
     function metric(parent, value, rank, divider) {
       var box = document.createElement('div');
       box.className = divider ? 'adv-metric adv-metric-divider' : 'adv-metric';

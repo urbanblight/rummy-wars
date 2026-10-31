@@ -6,7 +6,7 @@
   <main class="shell results-shell">
     <header class="results-header">
       <div>
-        <p class="eyebrow">RUMMY WARS / TEAMS</p>
+        <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / TEAMS</p>
         <h1>Teams</h1>
         <p class="muted">
           {% if snapshot %}Ordered by the {{ snapshot.season_year }} standings (as of {{ snapshot.as_of_date }}).{% else %}No standings imported yet.{% endif %}
@@ -26,10 +26,10 @@
                 <td><a class="team-link" href="{{ url_for('team', team_id=team.id) }}"><strong>{{ team.name }}</strong></a></td>
                 <td>{{ team.manager }}</td>
                 <td class="num">{{ team.total_points if team.total_points is not none }}</td>
-                <td class="num">{% if team.active_sgp_vr is not none %}<span class="{{ 'pos' if team.active_sgp_vr > 0.005 else ('neg' if team.active_sgp_vr < -0.005 else '') }}">{{ team.active_sgp_vr|signed }}</span>{% endif %}</td>
+                <td class="num">{% if team.active_sgp_vr is not none %}<span class="{{ 'pos' if team.active_sgp_vr > 1 else ('neg' if team.active_sgp_vr < -1 else '') }}">{{ team.active_sgp_vr|signed }}</span>{% endif %}</td>
                 {% for system in systems %}
                   {% set value = (team.projected_sgp_vr or {}).get(system.key) %}
-                  <td class="num">{% if value is not none %}<span class="{{ 'pos' if value > 0.005 else ('neg' if value < -0.005 else '') }}">{{ value|signed }}</span>{% endif %}</td>
+                  <td class="num">{% if value is not none %}<span class="{{ 'pos' if value > 1 else ('neg' if value < -1 else '') }}">{{ value|signed }}</span>{% endif %}</td>
                 {% endfor %}
               </tr>
             {% endfor %}

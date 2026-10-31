@@ -674,7 +674,7 @@ td small {
 .stats {
   color: var(--muted);
   font-family: 'DM Mono', monospace;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 /* Badge Styles */
@@ -1026,11 +1026,11 @@ td.tight {
 }
 
 td.sgp-vr {
-  font-size: 17px;
+  font-size: 18px;
 }
 
 td.stats {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 td.num .pos {

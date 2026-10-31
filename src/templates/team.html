@@ -8,7 +8,7 @@
   <main class="shell results-shell">
     <header class="results-header">
       <div>
-        <p class="eyebrow">RUMMY WARS / TEAMS</p>
+        <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / TEAMS</p>
         <h1>{{ team.name }}</h1>
         <p class="muted">
           {{ team.manager }}{% if team.rank is not none %} &middot; #{{ team.rank }} in the {{ snapshot.season_year }} standings with {{ team.total_points }} points{% endif %}
