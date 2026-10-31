@@ -58,4 +58,6 @@ gcloud run deploy "$SERVICE" \
     --set-env-vars "^|^$ENV_VARS" \
     --add-cloudsql-instances "$CLOUDSQL_INSTANCE" \
     --set-secrets SECRET_KEY=SECRET_KEY:latest,DATABASE_URL=DATABASE_URL:latest \
+    --min-instances=1 \
+    --max-instances=1 \
     --allow-unauthenticated

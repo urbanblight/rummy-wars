@@ -59,6 +59,11 @@ body {
   letter-spacing: 1.5px;
 }
 
+.eyebrow a,
+.eyebrow a:visited {
+  color: var(--accent);
+}
+
 .panel-kicker {
   margin: 0 0 36px;
   color: var(--accent);
@@ -754,7 +759,9 @@ td small {
 
 .adv-icon,
 .news-icon,
-.note-icon {
+.note-icon,
+.prospect-icon,
+.scout-icon {
   padding: 2px 6px;
   background: transparent;
   border: 0;
@@ -767,6 +774,10 @@ td small {
 .adv-icon:focus-visible,
 .news-icon:hover,
 .news-icon:focus-visible,
+.prospect-icon:hover,
+.prospect-icon:focus-visible,
+.scout-icon:hover,
+.scout-icon:focus-visible,
 .note-icon:hover,
 .note-icon:focus-visible {
   background: var(--panel-dark);
@@ -886,8 +897,17 @@ td small {
 
 .adv-total .adv-metric strong {
   font-size: 1.7rem;
-  color: var(--accent);
-  text-shadow: 0 0 10px rgba(253, 184, 39, 0.6);
+  color: var(--ink);
+}
+
+.adv-total .adv-metric strong.pos {
+  color: #7ee08a;
+  text-shadow: 0 0 8px rgba(126, 224, 138, 0.5);
+}
+
+.adv-total .adv-metric strong.neg {
+  color: #ff7b72;
+  text-shadow: 0 0 8px rgba(255, 123, 114, 0.5);
 }
 
 .adv-metric strong.pos {
@@ -957,7 +977,7 @@ td small {
   grid-template-columns: auto 1fr;
   gap: 6px 10px;
   background: var(--navy);
-  border: 2px solid var(--accent);
+  border: 2px solid var(--primary-glow);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   font-size: 0.8rem;
   line-height: 1.4;
@@ -972,7 +992,7 @@ td small {
 .adv-info-tip dt {
   font-family: 'DM Mono', monospace;
   letter-spacing: 0.1em;
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .adv-info-tip dd {
@@ -1195,13 +1215,30 @@ td.num .neg {
   text-transform: uppercase;
 }
 
-.free-agent-controls {
+.section-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+}
+
+.section-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.free-toggle {
+  margin-right: 16px;
+  cursor: pointer;
+}
+
+.section-controls nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .roster-meta {
@@ -1218,4 +1255,70 @@ td.num .neg {
 
 .roster-meta .stats-source {
   margin-left: 0;
+}
+
+.prospect-lists {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.prospect-list {
+  padding: 8px 16px;
+  background: var(--navy);
+  border: 1px solid var(--primary-glow);
+}
+
+.prospect-list > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.prospect-metrics {
+  display: flex;
+  justify-content: space-around;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.prospect-metrics .adv-metric small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.prospect-metrics .adv-metric small.pos {
+  color: #7ee08a;
+}
+
+.prospect-metrics .adv-metric small.neg {
+  color: #ff7b72;
+}
+
+.scout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.scout-cell {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px;
+  background: var(--navy);
+  border: 1px solid var(--primary-glow);
+}
+
+.scout-cell span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.scout-cell strong {
+  font-size: 1.2rem;
+  color: var(--ink);
 }

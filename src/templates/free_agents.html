@@ -15,24 +15,26 @@
     </header>
 
     <section class="roster-section" aria-labelledby="roster-title">
-      <h2 id="roster-title">Players</h2>
-      <div class="free-agent-controls">
-        <nav aria-label="Player type">
-          <a class="text-link" href="{{ url_for('free_agents', type='batters') }}"{% if kind == 'batters' %} aria-current="page"{% endif %}>Batters</a>
-          &middot;
-          <a class="text-link" href="{{ url_for('free_agents', type='pitchers') }}"{% if kind == 'pitchers' %} aria-current="page"{% endif %}>Pitchers</a>
-        </nav>
-        <form method="get" action="{{ url_for('free_agents') }}">
-          <input type="hidden" name="type" value="{{ kind }}">
-          <input type="hidden" name="sort" value="{{ sort }}">
-          <input type="hidden" name="dir" value="{{ sort_dir }}">
-          <label for="position-filter" class="filter-label">Position</label>
-          <select id="position-filter" class="stats-source" name="position">
-            <option value="">All</option>
-            {% for pos in positions %}<option value="{{ pos }}"{% if pos == position %} selected{% endif %}>{{ pos }}</option>{% endfor %}
-          </select>
-          <noscript><button type="submit">Filter</button></noscript>
-        </form>
+      <div class="section-head">
+        <h2 id="roster-title">Players</h2>
+        <div class="section-controls">
+          <nav aria-label="Player type">
+            <a class="text-link" href="{{ url_for('free_agents', type='batters') }}"{% if kind == 'batters' %} aria-current="page"{% endif %}>Batters</a>
+            &middot;
+            <a class="text-link" href="{{ url_for('free_agents', type='pitchers') }}"{% if kind == 'pitchers' %} aria-current="page"{% endif %}>Pitchers</a>
+          </nav>
+          <form method="get" action="{{ url_for('free_agents') }}">
+            <input type="hidden" name="type" value="{{ kind }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="dir" value="{{ sort_dir }}">
+            <label for="position-filter" class="filter-label">Position</label>
+            <select id="position-filter" class="stats-source" name="position">
+              <option value="">All</option>
+              {% for pos in positions %}<option value="{{ pos }}"{% if pos == position %} selected{% endif %}>{{ pos }}</option>{% endfor %}
+            </select>
+            <noscript><button type="submit">Filter</button></noscript>
+          </form>
+        </div>
       </div>
       <h3 id="players-title">{{ kind|capitalize }}</h3>
       {{ player_table(players, show_roster=False, sort={'key': sort, 'dir': sort_dir, 'base': sort_base}) }}

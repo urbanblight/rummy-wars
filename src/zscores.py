@@ -856,6 +856,53 @@ def bp_ranks() -> dict[str, tuple[int, int | None]]:
     return _BP_RANKS[1]
 
 
+_PROSPECTS: tuple[float, dict[str, list[dict]]] | None = None
+PROSPECT_MAX_RANK = 250  # a prospect needs a rank this good (or better) on some list to be shown
+PROSPECT_SOURCES = {"bp": "Baseball Prospectus", "fangraphs": "FanGraphs"}
+
+
+def prospect_ranks() -> dict[str, list[dict]]:
+    """Map player ids to their prospect list entries from the latest import of each source and list.
+
+    Only players ranked ``PROSPECT_MAX_RANK`` or better on at least one list are included; each entry has ``list``, ``rank``,
+    ``change``, ``org_rank``, ``fv``, ``level`` and ``eta``. Cached like ``cbs_ids``.
+    """
+    global _PROSPECTS
+    now = time.monotonic()
+    if _PROSPECTS is None or now - _PROSPECTS[0] > CBS_IDS_TTL:
+        conn = db.connect_or_none()
+        if conn is None:
+            return {}
+        with conn:
+            try:
+                rows = conn.execute(
+                    "SELECT source, season, list_type, snapshot, player_id, `rank`, `change`, org_rank, fv, level, eta "
+                    "FROM rankings_prospects WHERE player_id IS NOT NULL"
+                ).fetchall()
+            except db.SchemaError:
+                rows = []
+        latest: dict[tuple, tuple] = {}
+        for row in rows:
+            key = (row[0], row[2])
+            latest[key] = max(latest.get(key, (row[1], row[3])), (row[1], row[3]))
+        found: dict[str, list[dict]] = {}
+        for source, season, list_type, snapshot, pid, rank, change, org_rank, fv, level, eta in rows:
+            if (season, snapshot) != latest[(source, list_type)]:
+                continue
+            name = PROSPECT_SOURCES.get(source, source)
+            label = name if list_type in ("batting", "pitching") else f"{name} {list_type.replace('_', ' ').title()}"
+            found.setdefault(str(pid), []).append({
+                "list": label, "rank": None if rank is None else int(rank),
+                "change": None if change is None else int(change),
+                "org_rank": None if org_rank is None else int(org_rank), "fv": fv, "level": level,
+                "eta": None if eta is None else int(eta),
+            })
+        found = {pid: sorted(entries, key=lambda e: e["rank"] is None)
+                 for pid, entries in found.items() if any(e["rank"] is not None and e["rank"] <= PROSPECT_MAX_RANK for e in entries)}
+        _PROSPECTS = (now, found)
+    return _PROSPECTS[1]
+
+
 def cbs_ids() -> dict[str, str]:
     """Map player ids to CBS ids, reloaded from the database at most every ``CBS_IDS_TTL`` seconds."""
     global _CBS_IDS

@@ -45,7 +45,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         url = get.call_args.args[0]
         self.assertTrue(url.startswith("https://news.google.com/rss/search?q="))
         self.assertIn("Aaron+Judge", url)
-        self.assertIn("when%3A7d", url)
+        self.assertIn("when%3A30d", url)
         self.assertTrue(url.endswith("&hl=en-US&gl=US&ceid=US:en"))
         self.assertEqual(self.client.get("/news").status_code, 400)
 
@@ -66,6 +66,52 @@ class WebAppIntegrationTests(unittest.TestCase):
         text = self.client.get("/").get_data(as_text=True)
         self.assertIn('href="/teams"', text)
         self.assertLess(text.index("Constitution"), text.index('href="/teams"'))
+
+    def test_home_page_links_to_prospects(self):
+        self.assertIn('href="/prospects"', self.client.get("/").get_data(as_text=True))
+
+    @patch("prospects.load_prospects")
+    def test_prospects_page_lists_ranks_and_scouting_report(self, load):
+        import prospects
+
+        load.return_value = [prospects.Prospect(
+            name="Jesus Made", team="MIL", eligible_positions=["SS", "OF"], fangraphs_rank=3, bp_rank=1, bp_change=2,
+            org_rank=1, age=19.4, fv="65", level="AA", eta="2027", versa="2B/SS", fantasy_team_id=7, fantasy_team="Sluggers", report=[["Hit", "40 / 60"]],
+        )]
+        response = self.client.get("/prospects?type=batters&sort=fv&position=SS")
+        text = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        load.assert_called_with("Batter", "fv", True)
+        for expected in ("Jesus Made", "📋", 'class="pos">1<', "19.4", "65", "AA", "2027", "2B/SS", "Sluggers", "/teams/7", 'id="position-filter"', "position=SS", 'id="free-filter"'):
+            self.assertIn(expected, text)
+
+    @patch("prospects.last_updated")
+    @patch("prospects.load_prospects")
+    def test_prospects_page_shows_when_each_source_was_updated(self, load, updated):
+        from datetime import datetime, timezone
+
+        load.return_value = []
+        updated.return_value = [("FanGraphs", datetime(2026, 10, 30, 18, 0, tzinfo=timezone.utc)),
+                                ("Baseball Prospectus", datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc))]
+        text = self.client.get("/prospects").get_data(as_text=True)
+        self.assertIn("FanGraphs updated", text)
+        self.assertIn("Oct 30, 2026", text)
+        self.assertIn("Baseball Prospectus updated", text)
+        self.assertIn("Oct 28, 2026", text)
+
+    @patch("prospects.load_prospects")
+    def test_prospects_free_only_hides_rostered_players(self, load):
+        import prospects
+
+        load.return_value = [
+            prospects.Prospect(name="Rostered Guy", fantasy_team_id=7, fantasy_team="Sluggers"),
+            prospects.Prospect(name="Open Guy"),
+        ]
+        text = self.client.get("/prospects?free=1").get_data(as_text=True)
+        self.assertIn("Open Guy", text)
+        self.assertNotIn("Rostered Guy", text)
+        self.assertIn("free=1", text)
+        self.assertIn("Rostered Guy", self.client.get("/prospects").get_data(as_text=True))
 
     def test_home_page_links_to_free_agents(self):
         self.assertIn('href="/free-agents"', self.client.get("/").get_data(as_text=True))

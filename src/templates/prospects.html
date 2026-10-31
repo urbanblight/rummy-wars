@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "_players.html" import sort_header, advanced_modal, advanced_modal_script, news_modal, news_modal_script %}
+
+{% block title %}RUMMY WARS Prospects{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / PROSPECTS</p>
+        <h1>Prospects</h1>
+        <p class="muted">{% if updated %}{% for label, when in updated %}{% if not loop.first %} &middot; {% endif %}{{ label }} updated <time datetime="{{ when.isoformat() }}">{{ when.strftime('%b %-d, %Y') }}</time>{% endfor %}{% else %}No prospect rankings imported yet.{% endif %}</p>
+      </div>
+      <a class="text-link" href="{{ url_for('index') }}">Home <span aria-hidden="true">-></span></a>
+    </header>
+
+    <section class="roster-section" aria-labelledby="roster-title">
+      <div class="section-head">
+        <h2 id="roster-title">Players</h2>
+        <div class="section-controls">
+          <nav aria-label="Player type">
+            <a class="text-link" href="{{ url_for('prospects_page', type='batters') }}"{% if kind == 'batters' %} aria-current="page"{% endif %}>Batters</a>
+            &middot;
+            <a class="text-link" href="{{ url_for('prospects_page', type='pitchers') }}"{% if kind == 'pitchers' %} aria-current="page"{% endif %}>Pitchers</a>
+          </nav>
+          <form method="get" action="{{ url_for('prospects_page') }}">
+            <input type="hidden" name="type" value="{{ kind }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="dir" value="{{ sort_dir }}">
+            <label class="filter-label free-toggle"><input type="checkbox" id="free-filter" name="free" value="1"{% if free_only %} checked{% endif %}> Free agents only</label>
+          <label for="position-filter" class="filter-label">Position</label>
+            <select id="position-filter" class="stats-source" name="position">
+              <option value="">All</option>
+              {% for pos in positions %}<option value="{{ pos }}"{% if pos == position %} selected{% endif %}>{{ pos }}</option>{% endfor %}
+            </select>
+            <noscript><button type="submit">Filter</button></noscript>
+          </form>
+        </div>
+      </div>
+      <h3 id="players-title">{{ kind|capitalize }}</h3>
+      {% set sorting = {'key': sort, 'dir': sort_dir, 'base': sort_base} %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr>{{ sort_header('Player', 'name', sorting) }}{{ sort_header('FanGraphs', 'fangraphs', sorting, 'num tight') }}{{ sort_header('BP', 'bp', sorting, 'num tight') }}{{ sort_header('Org', 'org', sorting, 'num tight') }}{{ sort_header('Age', 'age', sorting, 'num tight') }}{{ sort_header('FV', 'fv', sorting, 'num tight') }}<th class="tight">Level</th><th class="num tight">ETA</th>{% if kind == 'batters' %}<th>Versa</th>{% endif %}{{ sort_header('Team', 'team', sorting) }}</tr></thead>
+          <tbody>
+            {% for player in players %}
+              {% set cbs = player.player_id|cbs_id %}
+              <tr>
+                <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if player.report %} <button type="button" class="scout-icon" aria-label="Scouting report for {{ player.name }}" data-name="{{ player.name }}" data-report='{{ player.report|tojson }}'>📋</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
+                <td class="num tight">{% if player.fangraphs_rank is not none %}{{ player.fangraphs_rank }}{% endif %}</td>
+                <td class="num tight">{% if player.bp_rank is not none %}<span class="{{ 'pos' if player.bp_change and player.bp_change > 0 else ('neg' if player.bp_change and player.bp_change < 0 else '') }}">{{ player.bp_rank }}</span>{% endif %}</td>
+                <td class="num tight">{% if player.org_rank is not none %}{{ player.org_rank }}{% endif %}</td>
+                <td class="num tight">{% if player.age is not none %}{{ '%.1f'|format(player.age) }}{% endif %}</td>
+                <td class="num tight">{% if player.fv %}{{ player.fv }}{% endif %}</td>
+                <td class="narrow tight">{{ player.level or '' }}</td>
+                <td class="num tight">{{ player.eta or '' }}</td>
+                {% if kind == 'batters' %}<td>{{ player.versa or '' }}</td>{% endif %}
+                <td>{% if player.fantasy_team_id is not none %}<a class="team-link" href="{{ url_for('team', team_id=player.fantasy_team_id) }}">{{ player.fantasy_team }}</a>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if not players %}<p class="muted" role="status">No prospects found. Run scripts/import_prospects.py first.</p>{% endif %}
+    </section>
+  </main>
+
+  {{ advanced_modal() }}
+  {{ news_modal() }}
+  <dialog id="scout-modal" class="adv-modal" aria-labelledby="scout-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">SCOUTING REPORT</p>
+          <h2 id="scout-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close" aria-label="Close">&times;</button>
+      </header>
+      <div class="scout-grid" id="scout-modal-grid"></div>
+    </div>
+  </dialog>
+{% endblock %}
+
+{% block scripts %}
+{{ advanced_modal_script() }}
+{{ news_modal_script() }}
+<script>
+  (function () {
+    var filter = document.getElementById('position-filter');
+    filter.addEventListener('change', function () { filter.form.submit(); });
+    var free = document.getElementById('free-filter');
+    free.addEventListener('change', function () { free.form.submit(); });
+  })();
+  (function () {
+    var modal = document.getElementById('scout-modal');
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.scout-icon');
+      if (btn) {
+        document.getElementById('scout-modal-title').textContent = btn.dataset.name;
+        var grid = document.getElementById('scout-modal-grid');
+        grid.textContent = '';
+        JSON.parse(btn.dataset.report).forEach(function (pair) {
+          var cell = document.createElement('div');
+          cell.className = 'scout-cell';
+          var label = document.createElement('span');
+          label.textContent = pair[0];
+          var value = document.createElement('strong');
+          value.textContent = pair[1];
+          cell.append(label, value);
+          grid.append(cell);
+        });
+        modal.showModal();
+      } else if (e.target === modal || (modal.open && e.target.closest('#scout-modal .adv-close'))) {
+        modal.close();
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -27,7 +27,7 @@
           <tr>
             {% set found = notices.get(player.name) if notices else none %}
             {% set cbs = player.player_id|cbs_id %}
-            <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
+            <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %}{% set prospects = player.player_id|prospect_ranks %}{% if prospects %} <button type="button" class="prospect-icon" aria-label="Prospect rankings for {{ player.name }}" data-name="{{ player.name }}" data-prospects='{{ prospects|tojson }}'>🚀</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}
             {% set bp = player.player_id|bp_rank %}
@@ -77,6 +77,18 @@
       <div class="adv-cols" aria-hidden="true"><span></span><span>Z</span><span>SGP</span><span>Z VR</span><span>SGP VR</span></div>
       <div class="adv-total"><span>TOTAL</span><div class="adv-metrics" id="adv-modal-total"></div></div>
       <div class="adv-cells" id="adv-modal-cells"></div>
+    </div>
+  </dialog>
+  <dialog id="prospect-modal" class="adv-modal" aria-labelledby="prospect-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">PROSPECT RANKINGS</p>
+          <h2 id="prospect-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close" aria-label="Close">&times;</button>
+      </header>
+      <div class="prospect-lists" id="prospect-modal-lists"></div>
     </div>
   </dialog>
 {% endmacro %}
@@ -134,6 +146,51 @@
       } else if (e.target.closest('.adv-info-icon')) {
         e.target.closest('.adv-info').classList.toggle('open');
       } else if (e.target === modal || e.target.closest('.adv-close')) {
+        modal.close();
+      }
+    });
+  })();
+  (function () {
+    var modal = document.getElementById('prospect-modal');
+    function stat(label, value, change) {
+      var box = document.createElement('div');
+      box.className = 'adv-metric';
+      var strong = document.createElement('strong');
+      strong.textContent = value;
+      var small = document.createElement('small');
+      small.textContent = label;
+      box.append(strong, small);
+      if (change) {
+        var delta = document.createElement('small');
+        delta.className = change > 0 ? 'pos' : 'neg';
+        delta.textContent = (change > 0 ? '+' : '\u2212') + Math.abs(change);
+        box.append(delta);
+      }
+      return box;
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.prospect-icon');
+      if (btn) {
+        document.getElementById('prospect-modal-title').textContent = btn.dataset.name;
+        var lists = document.getElementById('prospect-modal-lists');
+        lists.textContent = '';
+        JSON.parse(btn.dataset.prospects).forEach(function (entry) {
+          var row = document.createElement('div');
+          row.className = 'prospect-list';
+          var label = document.createElement('span');
+          label.textContent = entry.list;
+          var metrics = document.createElement('div');
+          metrics.className = 'prospect-metrics';
+          metrics.append(stat('RANK', entry.rank === null ? '\u2014' : '#' + entry.rank, entry.change));
+          if (entry.org_rank !== null) { metrics.append(stat('ORG', '#' + entry.org_rank)); }
+          if (entry.fv) { metrics.append(stat('FV', entry.fv)); }
+          if (entry.level) { metrics.append(stat('LEVEL', entry.level)); }
+          if (entry.eta) { metrics.append(stat('ETA', entry.eta)); }
+          row.append(label, metrics);
+          lists.append(row);
+        });
+        modal.showModal();
+      } else if (e.target === modal || (modal.open && e.target.closest('#prospect-modal .adv-close'))) {
         modal.close();
       }
     });

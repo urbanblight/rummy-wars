@@ -43,6 +43,7 @@ python scripts/import_players.py                      # once, so projections can
 python scripts/import_projections.py                  # every file in data/projections
 python scripts/import_projections.py data/projections/ZIPS-2027-batting.csv
 python scripts/import_rankings.py                     # dynasty rankings in data/rankings (<source>-<season>-dynasty.csv)
+python scripts/import_prospects.py                    # prospect lists in data/prospects (<source>-<year>-<type>.csv)
 ```
 
 - Put FanGraphs-style CSV exports in `data/projections`, named `<system>-<season>-<batting|pitching>.csv`, for example `ZIPS-2027-batting.csv`. The system, season and table come from the file name; other `.csv` files in the folder are skipped with a warning.

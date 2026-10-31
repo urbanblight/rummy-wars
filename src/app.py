@@ -13,11 +13,12 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 try:
-    from . import auth, league, projections, utils, zscores
+    from . import auth, league, projections, prospects, utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
     import auth
     import league
     import projections
+    import prospects
     import utils
     import zscores
 
@@ -67,6 +68,12 @@ app.jinja_env.globals["cbs_player_url"] = CBS_PLAYER_URL
 def bp_rank_filter(player_id: str | None) -> tuple[int, int | None] | None:
     """The Baseball Prospectus dynasty (rank, change) for a player id, or None when unranked."""
     return zscores.bp_ranks().get(player_id) if player_id else None
+
+
+@app.template_filter("prospect_ranks")
+def prospect_ranks_filter(player_id: str | None) -> list[dict]:
+    """The prospect list entries for a player id (empty unless ranked on a list)."""
+    return zscores.prospect_ranks().get(player_id, []) if player_id else []
 
 
 @app.template_filter("cbs_id")
@@ -136,7 +143,7 @@ def _published_at(value: str) -> datetime.datetime:
 
 def fetch_player_news(name: str) -> list[dict]:
     """Return recent Google News items for a player."""
-    query = f'"{name}" MLB -"player prop" when:7d'
+    query = f'"{name}" MLB -"player prop" when:30d'
     url = f"{NEWS_RSS_URL}?{urlencode({'q': query})}&hl=en-US&gl=US&ceid=US:en"
     response = requests.get(url, timeout=10)
     response.raise_for_status()
@@ -250,6 +257,30 @@ def free_agent_rows():
     )
     html = render_template("_free_agent_rows.html", players=players)
     return html, 200, {"X-Has-More": "1" if has_more else "0"}
+
+
+@app.get("/prospects")
+def prospects_page():
+    kind = "pitchers" if request.args.get("type") == "pitchers" else "batters"
+    sort = request.args.get("sort", "")
+    if sort not in prospects.SORT_KEYS:
+        sort = prospects.DEFAULT_SORT
+    # Ranks, org rank and age are best when low; future value is best when high.
+    default_descending = sort == "fv"
+    direction = request.args.get("dir", "")
+    descending = default_descending if direction not in ("asc", "desc") else direction == "desc"
+    everyone = prospects.load_prospects("Pitcher" if kind == "pitchers" else "Batter", sort, descending)
+    positions = sorted({pos for player in everyone for pos in player.eligible_positions})
+    position = request.args.get("position", "")
+    free_only = request.args.get("free") == "1"
+    players = [p for p in everyone if (not position or position in p.eligible_positions)
+               and (not free_only or p.fantasy_team_id is None)]
+    return render_template(
+        "prospects.html", kind=kind, players=players, sort=sort, position=position, positions=positions,
+        free_only=free_only, updated=prospects.last_updated(), sort_dir="desc" if descending else "asc",
+        sort_base=url_for("prospects_page", type=kind, position=position, free="1" if free_only else None),
+        offseason=MODE == "offseason",
+    )
 
 
 @app.post("/teams/<int:team_id>/evaluate")
