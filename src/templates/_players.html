@@ -225,6 +225,22 @@
       list.textContent = '';
       list.append(p);
     }
+    function isRecentDate(dateString) {
+      try {
+        var itemDate = new Date(dateString);
+        var today = new Date();
+        var yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        var itemDateStr = itemDate.toDateString();
+        var todayStr = today.toDateString();
+        var yesterdayStr = yesterday.toDateString();
+
+        return itemDateStr === todayStr || itemDateStr === yesterdayStr;
+      } catch (e) {
+        return false;
+      }
+    }
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.news-icon');
       if (btn) {
@@ -238,6 +254,12 @@
             if (request !== latest) { return; }
             if (!items.length) { message('No recent news found.'); return; }
             list.textContent = '';
+            var hasRecent = items.some(function (item) { return isRecentDate(item.published); });
+            if (hasRecent) {
+              btn.classList.add('has-recent-news');
+            } else {
+              btn.classList.remove('has-recent-news');
+            }
             items.forEach(function (item) {
               var p = document.createElement('p');
               var a = document.createElement('a');

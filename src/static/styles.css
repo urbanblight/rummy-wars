@@ -770,6 +770,11 @@ td small {
   cursor: pointer;
 }
 
+.news-icon.has-recent-news {
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
 .adv-icon:hover,
 .adv-icon:focus-visible,
 .news-icon:hover,
