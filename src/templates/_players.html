@@ -13,7 +13,7 @@
   {% set cols = stat_columns(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('BP', 'bp', sort, 'num tight') }}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
+      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
       <tbody>
         {{ player_rows(players, show_roster, notices) }}
       </tbody>
@@ -27,11 +27,19 @@
           <tr>
             {% set found = notices.get(player.name) if notices else none %}
             {% set cbs = player.player_id|cbs_id %}
-            <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if found %} <button type="button" class="note-icon" aria-label="Notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}{% if player.z_total is not none %} <button type="button" class="adv-icon" aria-label="Advanced stats for {{ player.name }}" data-name="{{ player.name }}" data-advanced='{{ player.advanced_payload()|tojson }}'>📈</button>{% endif %}{% set prospects = player.player_id|prospect_ranks %}{% if prospects %} <button type="button" class="prospect-icon" aria-label="Prospect rankings for {{ player.name }}" data-name="{{ player.name }}" data-prospects='{{ prospects|tojson }}'>🚀</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
+            {% set bp = player.player_id|bp_rank %}
+            {% set prospects = player.player_id|prospect_ranks %}
+            {% set profile = player.player_id|player_profile %}
+            {% set payload = {
+              'name': player.name, 'team': player.team, 'positions': player.eligible_positions, 'status': player.status,
+              'slot': player.roster_slot if show_roster else none, 'cbs_rank': player.cbs_rank, 'bp': bp,
+              'cbs_url': (cbs_player_url ~ (cbs|urlencode)) if cbs else none, 'links': profile.links, 'age': profile.age,
+              'report': profile.report, 'advanced': player.advanced_payload() if player.z_total is not none else none,
+              'prospects': prospects, 'notices': found or [],
+            } %}
+            <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button></small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}
-            {% set bp = player.player_id|bp_rank %}
-            <td class="num tight">{% if bp %}<span class="{{ 'pos' if bp[1] and bp[1] > 0 else ('neg' if bp[1] and bp[1] < 0 else '') }}">{{ bp[0] }}</span>{% endif %}</td>
             <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
             <td class="num tight sgp-vr">{% if vr %}{{ vr[1] }}{% endif %}</td>
             <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 1 else ('neg' if vr[0] < -1 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
@@ -77,6 +85,19 @@
       <div class="adv-cols" aria-hidden="true"><span></span><span>Z</span><span>SGP</span><span>Z VR</span><span>SGP VR</span></div>
       <div class="adv-total"><span>TOTAL</span><div class="adv-metrics" id="adv-modal-total"></div></div>
       <div class="adv-cells" id="adv-modal-cells"></div>
+    </div>
+  </dialog>
+  <dialog id="player-modal" class="adv-modal" aria-labelledby="player-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">PLAYER</p>
+          <h2 id="player-modal-title"></h2>
+          <p class="muted" id="player-modal-meta"></p>
+        </div>
+        <button type="button" class="adv-close player-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="player-modal-body"></div>
     </div>
   </dialog>
   <dialog id="prospect-modal" class="adv-modal" aria-labelledby="prospect-modal-title">
@@ -151,6 +172,91 @@
     });
   })();
   (function () {
+    var modal = document.getElementById('player-modal');
+    var body = document.getElementById('player-modal-body');
+    function el(tag, cls, text) {
+      var node = document.createElement(tag);
+      if (cls) { node.className = cls; }
+      if (text !== undefined) { node.textContent = text; }
+      return node;
+    }
+    function stat(label, value, change) {
+      var box = el('div', 'adv-metric');
+      box.append(el('strong', '', value), el('small', '', label));
+      if (change) {
+        box.append(el('small', change > 0 ? 'pos' : 'neg', (change > 0 ? '+' : '\u2212') + Math.abs(change)));
+      }
+      return box;
+    }
+    function action(cls, label, name, data) {
+      var button = el('button', cls + ' player-action', label);
+      button.type = 'button';
+      button.dataset.name = name;
+      Object.keys(data).forEach(function (key) { button.dataset[key] = data[key]; });
+      return button;
+    }
+    function render(d) {
+      document.getElementById('player-modal-title').textContent = d.name;
+      document.getElementById('player-modal-meta').textContent = [
+        d.team, d.positions.join(', '), [d.status, d.slot].filter(Boolean).join(' \u00b7 ')
+      ].filter(Boolean).join(' \u00b7 ');
+      body.textContent = '';
+
+      var ranks = el('div', 'prospect-list');
+      var metrics = el('div', 'prospect-metrics');
+      metrics.append(stat('BP DYNASTY', d.bp ? '#' + d.bp[0] : '\u2014', d.bp ? d.bp[1] : null));
+      if ('cbs_rank' in d) { metrics.append(stat('CBS RANK', d.cbs_rank === null ? '\u2014' : '#' + d.cbs_rank)); }
+      if (d.age != null) { metrics.append(stat('AGE', d.age.toFixed(1))); }
+      ranks.append(metrics);
+      body.append(ranks);
+
+      var actions = el('div', 'player-actions');
+      if (d.advanced) { actions.append(action('adv-icon', '\ud83d\udcc8 Advanced stats', d.name, { advanced: JSON.stringify(d.advanced) })); }
+      if (d.prospects && d.prospects.length) { actions.append(action('prospect-icon', '\ud83d\ude80 Prospect rankings', d.name, { prospects: JSON.stringify(d.prospects) })); }
+      actions.append(action('news-icon', '\ud83d\udcf0 News', d.name, {}));
+      if (d.notices && d.notices.length) {
+        var marks = (d.notices.some(function (n) { return n.kind === 'violation'; }) ? '\ud83d\udea8' : '')
+          + (d.notices.some(function (n) { return n.kind === 'warning'; }) ? '\u26a0\ufe0f' : '');
+        actions.append(action('note-icon', marks + ' Notifications', d.name, { notices: JSON.stringify(d.notices) }));
+      }
+      body.append(actions);
+
+      if (d.report.length) {
+        body.append(el('p', 'player-section', 'Scouting report'));
+        var grid = el('div', 'scout-grid');
+        d.report.forEach(function (pair) {
+          var cell = el('div', 'scout-cell');
+          cell.append(el('span', '', pair[0]), el('strong', '', pair[1]));
+          grid.append(cell);
+        });
+        body.append(grid);
+      }
+
+      var links = (d.cbs_url ? [['CBS', d.cbs_url]] : []).concat(d.links);
+      if (links.length) {
+        body.append(el('p', 'player-section', 'Profiles'));
+        var row = el('div', 'player-links');
+        links.forEach(function (pair) {
+          var a = el('a', '', pair[0] + ' \u2197');
+          a.href = pair[1];
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          row.append(a);
+        });
+        body.append(row);
+      }
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.player-open');
+      if (btn) {
+        render(JSON.parse(btn.dataset.player));
+        modal.showModal();
+      } else if (e.target === modal || e.target.closest('.player-close')) {
+        modal.close();
+      }
+    });
+  })();
+  (function () {
     var modal = document.getElementById('prospect-modal');
     function stat(label, value, change) {
       var box = document.createElement('div');
@@ -203,7 +309,7 @@
     <div class="adv-board">
       <header class="adv-board-head">
         <div>
-          <p class="panel-kicker">NEWS · LAST 7 DAYS</p>
+          <p class="panel-kicker">RECENT NEWS</p>
           <h2 id="news-modal-title"></h2>
         </div>
         <button type="button" class="adv-close news-close" aria-label="Close">&times;</button>
@@ -219,6 +325,16 @@
     var modal = document.getElementById('news-modal');
     var list = document.getElementById('news-modal-list');
     var latest = 0;
+    var newsUrl = '{{ url_for("player_news") }}';
+    var cache = {};
+    function loadNews(name) {
+      if (!cache[name]) {
+        cache[name] = fetch(newsUrl + '?name=' + encodeURIComponent(name))
+          .then(function (r) { if (!r.ok) { throw new Error(); } return r.json(); })
+          .catch(function (err) { delete cache[name]; throw err; });
+      }
+      return cache[name];
+    }
     function message(text) {
       var p = document.createElement('p');
       p.textContent = text;
@@ -248,18 +364,11 @@
         document.getElementById('news-modal-title').textContent = btn.dataset.name;
         message('Loading\u2026');
         modal.showModal();
-        fetch('{{ url_for("player_news") }}?name=' + encodeURIComponent(btn.dataset.name))
-          .then(function (r) { if (!r.ok) { throw new Error(); } return r.json(); })
+        loadNews(btn.dataset.name)
           .then(function (items) {
             if (request !== latest) { return; }
             if (!items.length) { message('No recent news found.'); return; }
             list.textContent = '';
-            var hasRecent = items.some(function (item) { return isRecentDate(item.published); });
-            if (hasRecent) {
-              btn.classList.add('has-recent-news');
-            } else {
-              btn.classList.remove('has-recent-news');
-            }
             items.forEach(function (item) {
               var p = document.createElement('p');
               var a = document.createElement('a');
@@ -282,6 +391,32 @@
         modal.close();
       }
     });
+    var queue = [];
+    var running = 0;
+    function flagNext() {
+      var btn = queue.shift();
+      if (!btn) { running--; return; }
+      loadNews(btn.dataset.name)
+        .then(function (items) {
+          var recent = items.some(function (item) { return isRecentDate(item.published); });
+          document.querySelectorAll('.news-icon').forEach(function (icon) {
+            if (icon.dataset.name !== btn.dataset.name) { return; }
+            icon.classList.toggle('has-recent-news', recent);
+            if (icon.classList.contains('news-flag')) { icon.hidden = !recent; }
+          });
+        })
+        .catch(function () {})
+        .then(flagNext);
+    }
+    function scan() {
+      document.querySelectorAll('.news-icon:not([data-news-checked])').forEach(function (icon) {
+        icon.dataset.newsChecked = '1';
+        queue.push(icon);
+      });
+      while (running < 4 && queue.length > running) { running++; flagNext(); }
+    }
+    scan();
+    new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
   })();
 </script>
 {% endmacro %}

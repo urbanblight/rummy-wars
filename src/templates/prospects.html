@@ -46,7 +46,14 @@
             {% for player in players %}
               {% set cbs = player.player_id|cbs_id %}
               <tr>
-                <td>{% if cbs %}<a class="player-link" href="{{ cbs_player_url }}{{ cbs|urlencode }}" target="_blank" rel="noopener noreferrer"><strong>{{ player.name }}</strong></a>{% else %}<strong>{{ player.name }}</strong>{% endif %}{% if player.team %} <span class="player-team">{{ player.team }}</span>{% endif %}<small>{{ player.eligible_positions|join(', ') }}{% if player.report %} <button type="button" class="scout-icon" aria-label="Scouting report for {{ player.name }}" data-name="{{ player.name }}" data-report='{{ player.report|tojson }}'>📋</button>{% endif %} <button type="button" class="news-icon" aria-label="News for {{ player.name }}" data-name="{{ player.name }}">📰</button></small></td>
+                {% set bp = player.player_id|bp_rank %}
+                {% set profile = player.player_id|player_profile %}
+                {% set payload = {
+                  'name': player.name, 'team': player.team, 'positions': player.eligible_positions, 'bp': bp,
+                  'cbs_url': (cbs_player_url ~ (cbs|urlencode)) if cbs else none, 'links': profile.links, 'age': player.age,
+                  'report': player.report, 'prospects': player.player_id|prospect_ranks,
+                } %}
+                <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button></small></td>
                 <td class="num tight">{% if player.fangraphs_rank is not none %}{{ player.fangraphs_rank }}{% endif %}</td>
                 <td class="num tight">{% if player.bp_rank is not none %}<span class="{{ 'pos' if player.bp_change and player.bp_change > 0 else ('neg' if player.bp_change and player.bp_change < 0 else '') }}">{{ player.bp_rank }}</span>{% endif %}</td>
                 <td class="num tight">{% if player.org_rank is not none %}{{ player.org_rank }}{% endif %}</td>
@@ -67,18 +74,6 @@
 
   {{ advanced_modal() }}
   {{ news_modal() }}
-  <dialog id="scout-modal" class="adv-modal" aria-labelledby="scout-modal-title">
-    <div class="adv-board">
-      <header class="adv-board-head">
-        <div>
-          <p class="panel-kicker">SCOUTING REPORT</p>
-          <h2 id="scout-modal-title"></h2>
-        </div>
-        <button type="button" class="adv-close" aria-label="Close">&times;</button>
-      </header>
-      <div class="scout-grid" id="scout-modal-grid"></div>
-    </div>
-  </dialog>
 {% endblock %}
 
 {% block scripts %}
@@ -90,30 +85,6 @@
     filter.addEventListener('change', function () { filter.form.submit(); });
     var free = document.getElementById('free-filter');
     free.addEventListener('change', function () { free.form.submit(); });
-  })();
-  (function () {
-    var modal = document.getElementById('scout-modal');
-    document.addEventListener('click', function (e) {
-      var btn = e.target.closest('.scout-icon');
-      if (btn) {
-        document.getElementById('scout-modal-title').textContent = btn.dataset.name;
-        var grid = document.getElementById('scout-modal-grid');
-        grid.textContent = '';
-        JSON.parse(btn.dataset.report).forEach(function (pair) {
-          var cell = document.createElement('div');
-          cell.className = 'scout-cell';
-          var label = document.createElement('span');
-          label.textContent = pair[0];
-          var value = document.createElement('strong');
-          value.textContent = pair[1];
-          cell.append(label, value);
-          grid.append(cell);
-        });
-        modal.showModal();
-      } else if (e.target === modal || (modal.open && e.target.closest('#scout-modal .adv-close'))) {
-        modal.close();
-      }
-    });
   })();
 </script>
 {% endblock %}

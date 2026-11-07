@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 from datetime import datetime, timezone
 
 try:
@@ -197,3 +198,17 @@ def load_prospects(player_type: str, sort: str = DEFAULT_SORT, descending: bool 
         if owners and prospect.player_id in owners:
             prospect.fantasy_team_id, prospect.fantasy_team = owners[prospect.player_id]
     return sort_prospects(found, sort, descending)
+
+
+_PROFILES: tuple[float, dict[str, Prospect]] | None = None
+PROFILES_TTL = 300  # seconds
+
+
+def profiles() -> dict[str, Prospect]:
+    """The latest prospect record (age, scouting report) by player id, cached for ``PROFILES_TTL`` seconds."""
+    global _PROFILES
+    now = time.monotonic()
+    if _PROFILES is None or now - _PROFILES[0] > PROFILES_TTL:
+        found = {p.player_id: p for kind in ("Batter", "Pitcher") for p in load_prospects(kind) if p.player_id}
+        _PROFILES = (now, found)
+    return _PROFILES[1]

@@ -760,8 +760,7 @@ td small {
 .adv-icon,
 .news-icon,
 .note-icon,
-.prospect-icon,
-.scout-icon {
+.prospect-icon {
   padding: 2px 6px;
   background: transparent;
   border: 0;
@@ -770,10 +769,6 @@ td small {
   cursor: pointer;
 }
 
-.news-icon.has-recent-news {
-  border: 2px solid var(--accent);
-  border-radius: 4px;
-}
 
 .adv-icon:hover,
 .adv-icon:focus-visible,
@@ -781,8 +776,6 @@ td small {
 .news-icon:focus-visible,
 .prospect-icon:hover,
 .prospect-icon:focus-visible,
-.scout-icon:hover,
-.scout-icon:focus-visible,
 .note-icon:hover,
 .note-icon:focus-visible {
   background: var(--panel-dark);
@@ -1326,4 +1319,73 @@ td.num .neg {
 .scout-cell strong {
   font-size: 1.2rem;
   color: var(--ink);
+}
+
+.player-open {
+  display: inline;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.player-open:hover,
+.player-open:focus-visible {
+  background: transparent;
+  color: inherit;
+}
+
+.player-open:hover strong,
+.player-open:focus-visible strong {
+  text-decoration: underline;
+}
+
+.player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.player-action {
+  padding: 6px 12px;
+  background: var(--navy);
+  border: 1px solid var(--primary-glow);
+  font-size: 0.9rem;
+}
+
+.player-action.has-recent-news {
+  border: 2px solid var(--accent);
+}
+
+.player-section {
+  margin: 20px 0 0;
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.player-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.player-links a {
+  color: var(--ink);
+}
+
+.player-links a:hover,
+.player-links a:focus-visible {
+  color: var(--accent);
+}
+
+#player-modal-meta {
+  margin: 4px 0 0;
 }

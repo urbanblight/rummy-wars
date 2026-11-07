@@ -82,7 +82,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         text = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
         load.assert_called_with("Batter", "fv", True)
-        for expected in ("Jesus Made", "📋", 'class="pos">1<', "19.4", "65", "AA", "2027", "2B/SS", "Sluggers", "/teams/7", 'id="position-filter"', "position=SS", 'id="free-filter"'):
+        for expected in ("Jesus Made", '["Hit", "40 / 60"]','class="pos">1<', "19.4", "65", "AA", "2027", "2B/SS", "Sluggers", "/teams/7", 'id="position-filter"', "position=SS", 'id="free-filter"'):
             self.assertIn(expected, text)
 
     @patch("prospects.last_updated")
@@ -328,11 +328,10 @@ class WebAppIntegrationTests(unittest.TestCase):
                 )
 
         text = response.get_data(as_text=True)
-        self.assertEqual(text.count('class="note-icon"'), 2)
-        self.assertIn('aria-label="Notifications for Yainer Diaz"', text)
-        self.assertIn('aria-label="Notifications for Jake Bennett"', text)
-        self.assertIn(">🚨</button>", text)
-        self.assertIn(">⚠️</button>", text)
+        self.assertNotIn('class="note-icon"', text)
+        self.assertIn("Yainer Diaz is placed in an Injured slot and was activated 2026-06-01", text)
+        self.assertIn('"kind": "violation"', text)
+        self.assertIn('"kind": "warning"', text)
         self.assertIn('id="note-modal"', text)
 
     def test_evaluating_a_teams_lineup_shows_the_same_report_as_an_uploaded_roster(self):
@@ -527,7 +526,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         text = response.get_data(as_text=True)
         self.assertIn("ADVANCED STATS", text)
         self.assertIn('id="adv-modal"', text)
-        self.assertIn("Advanced stats for", text)
+        self.assertIn('aria-label="Details for ', text)
         self.assertIn('"sgp": 2.0', text)
         self.assertNotIn("LEAGUE Z-SCORES", text)
         self.assertIn('class="adv-info-tip"', text)

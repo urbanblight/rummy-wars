@@ -920,6 +920,29 @@ def cbs_ids() -> dict[str, str]:
     return _CBS_IDS[1]
 
 
+_EXTERNAL_IDS: tuple[float, dict[str, dict[str, str]]] | None = None
+
+
+def external_ids() -> dict[str, dict[str, str]]:
+    """Map player ids to their FanGraphs, MLB and BP ids (those that are known), cached like ``cbs_ids``."""
+    global _EXTERNAL_IDS
+    now = time.monotonic()
+    if _EXTERNAL_IDS is None or now - _EXTERNAL_IDS[0] > CBS_IDS_TTL:
+        conn = db.connect_or_none()
+        if conn is None:
+            return {}
+        with conn:
+            try:
+                rows = conn.execute("SELECT player_id, fangraphs_id, mlb_id, bp_id FROM players").fetchall()
+            except db.SchemaError:
+                rows = []
+        _EXTERNAL_IDS = (now, {
+            str(pid): {key: str(value) for key, value in (("fangraphs", fg), ("mlb", mlb), ("bp", bp)) if value}
+            for pid, fg, mlb, bp in rows
+        })
+    return _EXTERNAL_IDS[1]
+
+
 def _value_rank(player: models.Player) -> tuple[int, int]:
     """Sort key: players with an SGP vs replacement rank first, best rank first."""
     total = player.sgp_above_replacement.get(TOTAL)

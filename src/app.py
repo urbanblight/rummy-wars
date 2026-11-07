@@ -5,7 +5,7 @@ import logging
 import os
 import tempfile
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from xml.etree import ElementTree
 
 import requests
@@ -80,6 +80,27 @@ def prospect_ranks_filter(player_id: str | None) -> list[dict]:
 def cbs_id_filter(player_id: str | None) -> str | None:
     """The CBS player id for a player id, or None when unknown."""
     return zscores.cbs_ids().get(player_id) if player_id else None
+
+
+EXTERNAL_PLAYER_URLS = (
+    ("fangraphs", "FanGraphs", "https://www.fangraphs.com/statss.aspx?playerid={}"),
+    ("mlb", "MLB", "https://www.mlb.com/player/{}"),
+    ("bp", "Baseball Prospectus", "https://www.baseballprospectus.com/player/{}/"),
+)
+
+
+@app.template_filter("player_profile")
+def player_profile_filter(player_id: str | None) -> dict:
+    """Profile links, age and scouting report for a player id, for the player modal."""
+    if not player_id:
+        return {"links": [], "age": None, "report": []}
+    ids = zscores.external_ids().get(player_id, {})
+    prospect = prospects.profiles().get(player_id)
+    return {
+        "links": [[label, template.format(quote(ids[key]))] for key, label, template in EXTERNAL_PLAYER_URLS if key in ids],
+        "age": prospect.age if prospect else None,
+        "report": prospect.report if prospect else [],
+    }
 
 
 @app.template_filter("signed")
