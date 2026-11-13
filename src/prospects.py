@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - supports direct module imports
     import db
     from player_ids import normalize_name
 
-SORT_KEYS = ("name", "fangraphs", "bp", "org", "age", "fv", "team")
+SORT_KEYS = ("name", "fangraphs", "bp", "mlb", "org", "age", "fv", "team")
 DEFAULT_SORT = "rank"
 BATTING_REPORT = [
     ("Hit", "hit"), ("Pitch Sel", "pitch_sel"), ("Bat Ctrl", "bat_ctrl"), ("Con Style", "con_style"),
@@ -39,6 +39,7 @@ class Prospect:
     fangraphs_rank: int | None = None
     bp_rank: int | None = None
     bp_change: int | None = None
+    mlb_rank: int | None = None
     org_rank: int | None = None
     age: float | None = None
     fv: str | None = None
@@ -72,11 +73,13 @@ def sort_value(prospect: Prospect, key: str):
         return prospect.fangraphs_rank
     if key == "bp":
         return prospect.bp_rank
+    if key == "mlb":
+        return prospect.mlb_rank
     if key == "org":
         return prospect.org_rank
     if key == "age":
         return prospect.age
-    ranks = [r for r in (prospect.fangraphs_rank, prospect.bp_rank) if r is not None]
+    ranks = [r for r in (prospect.fangraphs_rank, prospect.bp_rank, prospect.mlb_rank) if r is not None]
     return min(ranks) if ranks else None
 
 
@@ -93,7 +96,7 @@ def _text(value) -> str | None:
 
 
 def build_prospects(rows: list, player_type: str) -> list[Prospect]:
-    """Merge the latest FanGraphs and BP rows into one prospect per player."""
+    """Merge the latest FanGraphs, BP and MLB rows into one prospect per player."""
     report_columns = REPORTS[player_type]
     found: dict[str, Prospect] = {}
     for row in rows:
@@ -110,6 +113,8 @@ def build_prospects(rows: list, player_type: str) -> list[Prospect]:
             prospect.age = prospect.age if prospect.age is not None else row["age"]
             prospect.fv = prospect.fv or row["fv"]
             prospect.versa = prospect.versa or _text(row["versa"])
+        elif row["source"] == "mlb":
+            prospect.mlb_rank = prospect.mlb_rank or row["rank"]
         elif row["source"] == "bp":
             if prospect.bp_rank is None:
                 prospect.bp_rank, prospect.bp_change = row["rank"], row["change"]
@@ -143,7 +148,7 @@ def fantasy_teams(conn: db.Connection) -> dict[str, tuple[int, str]] | None:
     return {str(player_id): (team_id, name) for player_id, team_id, name in rows} or None
 
 
-SOURCE_LABELS = {"fangraphs": "FanGraphs", "bp": "Baseball Prospectus"}
+SOURCE_LABELS = {"fangraphs": "FanGraphs", "bp": "Baseball Prospectus", "mlb": "MLB"}
 
 
 def last_updated() -> list[tuple[str, datetime]]:
@@ -169,7 +174,7 @@ def last_updated() -> list[tuple[str, datetime]]:
 
 
 def load_prospects(player_type: str, sort: str = DEFAULT_SORT, descending: bool = False) -> list[Prospect]:
-    """The latest FanGraphs and BP prospects of one type (``Batter`` or ``Pitcher``)."""
+    """The latest FanGraphs, BP and MLB prospects of one type (``Batter`` or ``Pitcher``)."""
     conn = db.connect_or_none()
     if conn is None:
         return []
@@ -177,7 +182,7 @@ def load_prospects(player_type: str, sort: str = DEFAULT_SORT, descending: bool 
         try:
             lists = conn.execute(
                 "SELECT source, list_type, season, snapshot FROM rankings_prospects "
-                "WHERE player_type = %s AND source IN ('fangraphs', 'bp') GROUP BY source, list_type, season, snapshot",
+                "WHERE player_type = %s AND source IN ('fangraphs', 'bp', 'mlb') GROUP BY source, list_type, season, snapshot",
                 (player_type,),
             ).fetchall()
             latest: dict[str, tuple] = {}

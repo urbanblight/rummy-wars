@@ -49,3 +49,10 @@ def test_sort_by_team_treats_blank_as_lowest():
     c = prospects.Prospect(name="C", fantasy_team="Alpha")
     assert [p.name for p in prospects.sort_prospects([a, b, c], "team", False)] == ["B", "C", "A"]
     assert [p.name for p in prospects.sort_prospects([a, b, c], "team", True)] == ["A", "C", "B"]
+
+
+def test_mlb_rank_is_merged_and_sortable():
+    a = prospects.Prospect(name="A", mlb_rank=5)
+    b = prospects.Prospect(name="B", mlb_rank=2)
+    c = prospects.Prospect(name="C")
+    assert [p.name for p in prospects.sort_prospects([a, b, c], "mlb", False)] == ["B", "A", "C"]

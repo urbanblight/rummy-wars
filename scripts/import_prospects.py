@@ -7,14 +7,16 @@ Usage:
 Each PATH is a prospect export or a folder of them (default: ``data/prospects``). Files are
 named ``<source>-<year>-<type>.csv``: ``fangraphs-2026-batting.csv`` and
 ``fangraphs-2026-pitching.csv`` (FanGraphs scouting grades) or ``bp-2026-midseason.csv``
-(a Baseball Prospectus list of batters and pitchers). The source, season and list type come
+(a Baseball Prospectus list of batters and pitchers) or ``mlb-2026-combined.csv`` (MLB's top
+100 with minor league batting stats). The source, season and list type come
 from the name. Columns are recognised by header:
 
-* ``Rank`` (BP) or ``Top 100`` (FanGraphs) is stored as ``rank``; FanGraphs players outside
+* ``Rank`` (BP), ``Rk`` (MLB) or ``Top 100`` (FanGraphs) is stored as ``rank``; FanGraphs players outside
   the top 100 have a NULL rank, with their ``Org Rk`` and ``FV`` still stored.
 * ``Change``, ``Level``, ``ETA``, ``Pos``/``POS.``, ``SEC. POS.``, ``Team``/``Org`` and, for
   FanGraphs, ``Age``, the hitting grades and the pitch grades are stored as well.
-* BP's ``Age`` and its trailing column named for the previous list (``October``) are ignored.
+* BP's ``Age`` and its trailing column named for the previous list (``October``) are ignored,
+  as are the stat columns and the blank spacer rows of MLB's file.
 
 FanGraphs batting and pitching files list every prospect, so a row is kept only when it has
 data for that file's player type. In a ``midseason``-style file a pitching position (LHP/RHP)
@@ -50,7 +52,7 @@ PITCHER_POSITIONS = {"P", "SP", "RP", "SIRP", "MIRP", "LHP", "RHP"}
 # Export header (lower case) -> table column. Anything not listed (BP's Age and its
 # previous-list column) is ignored.
 SHARED_COLUMNS = {
-    "rank": "rank", "top 100": "rank", "change": "change", "player": "name", "name": "name",
+    "rank": "rank", "rk": "rank", "top 100": "rank", "change": "change", "player": "name", "name": "name",
     "team": "team", "org": "team", "pos": "pos", "pos.": "pos", "sec. pos.": "sec_pos",
     "org rk": "org_rank", "eta": "eta", "level": "level", "fv": "fv", "playerid": "fangraphs_id",
 }

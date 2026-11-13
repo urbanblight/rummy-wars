@@ -50,3 +50,19 @@ def test_fangraphs_file_keeps_only_its_player_type(tmp_path):
     assert df["org_rank"].tolist() == [3]
     assert str(df["tj_date"].iloc[0]) == "2022-04-01"
     assert df["fb"].tolist() == ["70 / 70"]
+
+
+def test_mlb_combined_file_imports_rank_and_skips_blank_rows(tmp_path):
+    path = tmp_path / "mlb-2026-combined.csv"
+    path.write_text(
+        "Rk,Player,Tm,Age,L,PA,AB,R,H\n"
+        "1,Jesús Made,,19,AA,558,491,87,133\n"
+        ",,,,,,,,\n"
+        "3,Unknown Guy,,20,ALL (2),520,449,78,145\n",
+        encoding="utf-8",
+    )
+    df = import_prospects.load_prospects(path, INDEX)
+    assert df["name"].tolist() == ["Jesús Made", "Unknown Guy"]
+    assert df["rank"].tolist() == [1, 3]
+    assert df["player_id"].tolist()[0] == "m1"
+    assert df["player_type"].tolist() == ["Batter", "Batter"]

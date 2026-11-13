@@ -858,7 +858,7 @@ def bp_ranks() -> dict[str, tuple[int, int | None]]:
 
 _PROSPECTS: tuple[float, dict[str, list[dict]]] | None = None
 PROSPECT_MAX_RANK = 250  # a prospect needs a rank this good (or better) on some list to be shown
-PROSPECT_SOURCES = {"bp": "Baseball Prospectus", "fangraphs": "FanGraphs"}
+PROSPECT_SOURCES = {"bp": "Baseball Prospectus", "fangraphs": "FanGraphs", "mlb": "MLB"}
 
 
 def prospect_ranks() -> dict[str, list[dict]]:

@@ -41,7 +41,7 @@
       {% set sorting = {'key': sort, 'dir': sort_dir, 'base': sort_base} %}
       <div class="table-wrap">
         <table>
-          <thead><tr>{{ sort_header('Player', 'name', sorting) }}{{ sort_header('FanGraphs', 'fangraphs', sorting, 'num tight') }}{{ sort_header('BP', 'bp', sorting, 'num tight') }}{{ sort_header('Org', 'org', sorting, 'num tight') }}{{ sort_header('Age', 'age', sorting, 'num tight') }}{{ sort_header('FV', 'fv', sorting, 'num tight') }}<th class="tight">Level</th><th class="num tight">ETA</th>{% if kind == 'batters' %}<th>Versa</th>{% endif %}{{ sort_header('Team', 'team', sorting) }}</tr></thead>
+          <thead><tr>{{ sort_header('Player', 'name', sorting) }}{{ sort_header('FanGraphs', 'fangraphs', sorting, 'num tight') }}{{ sort_header('BP', 'bp', sorting, 'num tight') }}{{ sort_header('MLB', 'mlb', sorting, 'num tight') }}{{ sort_header('Org', 'org', sorting, 'num tight') }}{{ sort_header('Age', 'age', sorting, 'num tight') }}{{ sort_header('FV', 'fv', sorting, 'num tight') }}<th class="tight">Level</th><th class="num tight">ETA</th>{% if kind == 'batters' %}<th>Versa</th>{% endif %}{{ sort_header('Team', 'team', sorting) }}</tr></thead>
           <tbody>
             {% for player in players %}
               {% set cbs = player.player_id|cbs_id %}
@@ -56,6 +56,7 @@
                 <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button></small></td>
                 <td class="num tight">{% if player.fangraphs_rank is not none %}{{ player.fangraphs_rank }}{% endif %}</td>
                 <td class="num tight">{% if player.bp_rank is not none %}<span class="{{ 'pos' if player.bp_change and player.bp_change > 0 else ('neg' if player.bp_change and player.bp_change < 0 else '') }}">{{ player.bp_rank }}</span>{% endif %}</td>
+                <td class="num tight">{% if player.mlb_rank is not none %}{{ player.mlb_rank }}{% endif %}</td>
                 <td class="num tight">{% if player.org_rank is not none %}{{ player.org_rank }}{% endif %}</td>
                 <td class="num tight">{% if player.age is not none %}{{ '%.1f'|format(player.age) }}{% endif %}</td>
                 <td class="num tight">{% if player.fv %}{{ player.fv }}{% endif %}</td>

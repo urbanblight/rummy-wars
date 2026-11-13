@@ -16,6 +16,7 @@ the latest with ``snapshot = (SELECT MAX(snapshot) ... WHERE `system` = %s AND s
 After importing, z-scores, SGP and above-replacement values are calculated for every
 system's latest projections (see ``projections.save_projection_scores``) and shown when the
 projection is selected on a team page. Columns the export lacks are stored as NULL; columns the tables do not list are ignored.
+Counting stats are stored as DOUBLE because Steamer projects fractional totals (e.g. 145.09 games).
 """
 
 from __future__ import annotations
@@ -54,13 +55,11 @@ PITCHING_COLUMNS = {
     "AVG": "avg", "BABIP": "babip", "LOB%": "lob_pct", "FIP": "fip", "WAR": "war", "ADP": "adp",
 }
 KINDS = {"batting": BATTING_COLUMNS, "pitching": PITCHING_COLUMNS}
-INTEGER_COLUMNS = {"g", "pa", "ab", "h", "singles", "doubles", "triples", "hr", "r", "rbi", "bb", "ibb", "so",
-                   "hbp", "sf", "sh", "gdp", "sb", "cs", "w", "l", "gs", "qs", "sv", "hld", "er"}
 
 
 def _schema(kind: str) -> str:
     columns = ",\n    ".join(
-        f"{column} {'INT' if column in INTEGER_COLUMNS else 'DOUBLE'}"
+        f"{column} DOUBLE"
         for column in dict.fromkeys(KINDS[kind].values())
     )
     return f"""
@@ -82,6 +81,22 @@ CREATE TABLE IF NOT EXISTS {kind}_projections (
 
 
 SCHEMA = _schema("batting") + _schema("pitching")
+
+
+def widen_count_columns(conn: db.Connection) -> None:
+    """Steamer projects fractional counting stats; convert INT columns from earlier imports to DOUBLE."""
+    for kind, columns in KINDS.items():
+        table = f"{kind}_projections"
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = %s AND data_type = 'int' AND column_name IN ({})".format(
+                ", ".join(["%s"] * len(set(columns.values())))
+            ),
+            (table, *dict.fromkeys(columns.values())),
+        ).fetchall()
+        if rows:
+            changes = ", ".join(f"MODIFY `{row[0]}` DOUBLE" for row in rows)
+            conn.execute(f"ALTER TABLE {table} {changes}")  # noqa: S608
 
 
 def parse_filename(name: str) -> tuple[str, int, str]:
@@ -197,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with db.connect() as conn:
             conn.executescript(SCHEMA)
+            widen_count_columns(conn)
             ids = load_player_ids(conn)
             for path in files:
                 system, season, kind, count = import_projections(path, conn, snapshot, ids)
