@@ -45,6 +45,7 @@ from player_ids import PlayerIndex  # noqa: E402
 
 DEFAULT_DIR = REPO_ROOT / "data" / "lineups"
 FILE_PATTERN = re.compile(r"^roster-overview-(\d+)(?:-(\d+))?-(\d{8})\.csv$")
+TEAM_FILE_PATTERN = re.compile(r"^roster-overview-(?:(\d+)-)?(\d{8})\.csv$")
 
 # Section titles in the export. Batters/Pitchers hold the active lineup; the others
 # follow and belong to the most recent of those two.
@@ -103,6 +104,24 @@ def parse_filename(name: str) -> LineupFile:
     except ValueError as error:
         raise ValueError(f"{name}: {stamp} is not a YYYYMMDD date") from error
     return LineupFile(int(team_id), int(period_id) if period_id else None, effective.isoformat())
+
+
+def parse_team_filename(name: str, team_id: int) -> LineupFile:
+    """Like ``parse_filename`` for a name without the team id (the team is known from context).
+
+    Accepts ``roster-overview-<date>.csv`` and ``roster-overview-<period-id>-<date>.csv``.
+    """
+    match = TEAM_FILE_PATTERN.match(name)
+    if not match:
+        raise ValueError(
+            f"{name}: expected roster-overview-<date>.csv or roster-overview-<period-id>-<date>.csv"
+        )
+    period_id, stamp = match.groups()
+    try:
+        effective = datetime.strptime(stamp, "%Y%m%d").date()
+    except ValueError as error:
+        raise ValueError(f"{name}: {stamp} is not a YYYYMMDD date") from error
+    return LineupFile(team_id, int(period_id) if period_id else None, effective.isoformat())
 
 
 def _number(value: str, kind=float):
@@ -164,17 +183,16 @@ def ensure_schema(conn: db.Connection) -> None:
     conn.executescript(SCHEMA)
 
 
-def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
-    """Replace one lineup's rows with the contents of ``path``; returns (lineup, players)."""
-    index = index or PlayerIndex.load(conn)
-    lineup = parse_filename(path.name)
+def store_lineup(
+    conn: db.Connection, lineup: LineupFile, players: list[dict], index: PlayerIndex, source: str
+) -> None:
+    """Replace one lineup's rows with ``players``; importing the same lineup again is a no-op in effect."""
     if not conn.execute("SELECT 1 FROM teams WHERE id = %s", (lineup.team_id,)).fetchone():
-        raise ValueError(f"{path.name}: no team with id {lineup.team_id}; run scripts/import_teams.py first")
-    players = parse_lineup(path.read_text(encoding="utf-8-sig"))
+        raise ValueError(f"{source}: no team with id {lineup.team_id}; run scripts/import_teams.py first")
     for player in players:
         player["player_id"] = index.resolve(player["name"], player["mlb_team"], player["player_type"])
         if player["player_id"] is None:
-            print(f"Warning: {path.name}: no player id for {player['name']} ({player['mlb_team']})", file=sys.stderr)
+            print(f"Warning: {source}: no player id for {player['name']} ({player['mlb_team']})", file=sys.stderr)
     conn.execute(
         "DELETE FROM lineups WHERE team_id = %s AND period_id <=> %s AND effective_date = %s",
         (lineup.team_id, lineup.period_id, lineup.effective_date),
@@ -187,6 +205,14 @@ def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = N
             for p in players
         ],
     )
+
+
+def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
+    """Replace one lineup's rows with the contents of ``path``; returns (lineup, players)."""
+    index = index or PlayerIndex.load(conn)
+    lineup = parse_filename(path.name)
+    players = parse_lineup(path.read_text(encoding="utf-8-sig"))
+    store_lineup(conn, lineup, players, index, path.name)
     return lineup, len(players)
 
 

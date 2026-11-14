@@ -175,10 +175,10 @@ def test_notification_icon_opens_the_players_messages(live_server, page: Page, m
     page.set_input_files("#roster", str(SAMPLE_CSV))
     page.get_by_role("button", name="Evaluate roster").click()
 
-    expect(page.locator(".note-icon")).to_have_count(0)
-    page.get_by_role("button", name="Details for Yainer Diaz").click()
-    icon = page.locator("#player-modal .note-icon")
-    expect(icon).to_have_text("🚨⚠️ Notifications")
+    # Only the player named in a notice gets an icon, next to their name in the list.
+    expect(page.locator(".note-icon")).to_have_count(1)
+    icon = page.get_by_role("button", name="Roster notifications for Yainer Diaz")
+    expect(icon).to_have_text("🚨⚠️")
     expect(page.locator("#note-modal")).to_be_hidden()
 
     icon.click()

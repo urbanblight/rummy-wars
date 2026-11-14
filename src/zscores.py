@@ -715,7 +715,7 @@ def load_players(team_id: int | None, limit: int | None = None) -> dict[str, lis
     return result
 
 
-FREE_AGENT_DEFAULT_SORT = "rank"
+FREE_AGENT_DEFAULT_SORT = "cbs"
 
 
 def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -> tuple[str, bool]:
@@ -762,7 +762,7 @@ def load_free_agents(
     player_type: str, offset: int = 0, limit: int = 50, position: str | None = None,
     sort: str | None = None, direction: str | None = None,
 ) -> list[models.Player]:
-    """One page of free agents of a type, best SGP vs replacement first unless ``sort`` says otherwise.
+    """One page of free agents of a type, best CBS rank first unless ``sort`` says otherwise.
 
     Sorting (see ``free_agent_sort``) and paging cover every free agent, not just those already shown, and
     happen in the database so only the requested rows are read; BP rankings live in another table, so that

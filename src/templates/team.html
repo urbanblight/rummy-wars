@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script, news_modal, news_modal_script %}
+{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script, news_modal, news_modal_script with context %}
 {% from "_loading.html" import loading_screen %}
 
 {% block title %}RUMMY WARS {{ team.name }}{% endblock %}
@@ -22,6 +22,30 @@
         <p class="alert {{ category }}">{{ message }}</p>
       {% endfor %}
     {% endwith %}
+
+    {% if can_edit_team(team.id) %}
+      <section class="upload-panel evaluate-panel" aria-labelledby="lineup-upload-title">
+        <div>
+          <p class="panel-kicker">LINEUP</p>
+          <h2 id="lineup-upload-title">Update this lineup</h2>
+          <p class="muted">Upload a CBS roster overview CSV named <code>roster-overview-&lt;date&gt;.csv</code> (offseason) or <code>roster-overview-&lt;period&gt;-&lt;date&gt;.csv</code>, with the date as YYYYMMDD; the name picks which period's lineup is replaced, so earlier periods can be corrected too. Uploading the same lineup again replaces it rather than adding to it.</p>
+        </div>
+        <form action="{{ url_for('upload_lineup', team_id=team.id) }}" method="post" enctype="multipart/form-data">
+          <label class="file-drop" for="lineup-file">
+            <span class="file-icon" aria-hidden="true">+</span>
+            <span><strong>Choose lineup CSV</strong><small id="lineup-file-name">CBS roster overview export</small></span>
+          </label>
+          <input id="lineup-file" name="lineup" type="file" accept=".csv,text/csv" required>
+          <script>
+            document.querySelector('#lineup-file').addEventListener('change', (event) => {
+              const file = event.target.files[0];
+              document.querySelector('#lineup-file-name').textContent = file ? file.name : 'CBS roster overview export';
+            });
+          </script>
+          <button type="submit">Upload lineup <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+    {% endif %}
 
     {% if lineup %}
       <section class="upload-panel evaluate-panel" aria-labelledby="evaluate-title">
@@ -67,22 +91,22 @@
       {% endif %}
       <section aria-labelledby="batters-title">
         <h3 id="batters-title">Batters ({{ active_batters|length }})</h3>
-        {{ player_table(active_batters, show_roster=lineup is not none) }}
-        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters") }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters") }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters") }}{% endif %}
+        {{ player_table(active_batters, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
+        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
       </section>
       <section aria-labelledby="pitchers-title">
         <h3 id="pitchers-title">Pitchers ({{ active_pitchers|length }})</h3>
-        {{ player_table(active_pitchers, show_roster=lineup is not none) }}
-        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers") }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers") }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers") }}{% endif %}
+        {{ player_table(active_pitchers, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
+        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
       </section>
       {% if lineup and other_players %}
         <section aria-labelledby="other-players-title">
           <h3 id="other-players-title">Other players ({{ other_players|length }})</h3>
-          {{ player_table(other_players) }}
+          {{ player_table(other_players, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
         </section>
       {% endif %}
     </section>

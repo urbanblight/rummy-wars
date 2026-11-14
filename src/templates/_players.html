@@ -9,19 +9,19 @@
   {%- endif -%}
 {% endmacro %}
 
-{% macro player_table(players, show_roster=True, notices=none, sort=none) %}
+{% macro player_table(players, show_roster=True, notices=none, sort=none, show_rank=True, color_stats=True, show_vr=True) %}
   {% set cols = stat_columns(players) %}
   <div class="table-wrap">
     <table>
-      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
+      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{% if show_rank %}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{% endif %}{% if show_vr %}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% endif %}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
       <tbody>
-        {{ player_rows(players, show_roster, notices) }}
+        {{ player_rows(players, show_roster, notices, show_rank, color_stats, show_vr) }}
       </tbody>
     </table>
   </div>
 {% endmacro %}
 
-{% macro player_rows(players, show_roster=True, notices=none) %}
+{% macro player_rows(players, show_roster=True, notices=none, show_rank=True, color_stats=True, show_vr=True) %}
         {% set cols = stat_columns(players) %}
         {% for player in players %}
           <tr>
@@ -37,22 +37,22 @@
               'report': profile.report, 'advanced': player.advanced_payload() if player.z_total is not none else none,
               'prospects': prospects, 'notices': found or [],
             } %}
-            <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button></small></td>
+            <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button>{% if prospects and is_admin %}<button type="button" class="prospect-icon" aria-label="Prospect rankings for {{ player.name }}" data-name="{{ player.name }}" data-prospects='{{ prospects|tojson }}'>🚀</button>{% endif %}{% if found %}<button type="button" class="note-icon" aria-label="Roster notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}</small></td>
             {% set vr = player.sgp_above_replacement.get('total') %}
             {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}
             <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
-            <td class="num tight sgp-vr">{% if vr %}{{ vr[1] }}{% endif %}</td>
-            <td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 1 else ('neg' if vr[0] < -1 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>
-            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span class="{{ 'pos' if cat_vr and cat_vr[0] > 1 else ('neg' if cat_vr and cat_vr[0] < -1 else '') }}">{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
+            {% if show_rank %}<td class="num tight sgp-vr">{% if vr %}{{ vr[1] }}{% endif %}</td>{% endif %}
+            {% if show_vr %}<td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 1 else ('neg' if vr[0] < -1 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>{% endif %}
+            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span{% if color_stats %} class="{{ 'pos' if cat_vr and cat_vr[0] > 1 else ('neg' if cat_vr and cat_vr[0] < -1 else '') }}"{% endif %}>{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
           </tr>
         {% endfor %}
 {% endmacro %}
 
-{% macro status_accordion(players, player_type, status, title, notices=none) %}
+{% macro status_accordion(players, player_type, status, title, notices=none, show_rank=True, color_stats=True, show_vr=True) %}
   {% if players %}
     <details class="roster-accordion" data-player-type="{{ player_type }}" data-status="{{ status }}">
       <summary>{{ title }} ({{ players|length }})</summary>
-      {{ player_table(players, notices=notices) }}
+      {{ player_table(players, notices=notices, show_rank=show_rank, color_stats=color_stats, show_vr=show_vr) }}
     </details>
   {% endif %}
 {% endmacro %}
@@ -174,6 +174,7 @@
   (function () {
     var modal = document.getElementById('player-modal');
     var body = document.getElementById('player-modal-body');
+    var isAdmin = document.body.hasAttribute('data-admin');
     function el(tag, cls, text) {
       var node = document.createElement(tag);
       if (cls) { node.className = cls; }
@@ -208,18 +209,13 @@
       if ('cbs_rank' in d) { metrics.append(stat('CBS RANK', d.cbs_rank === null ? '\u2014' : '#' + d.cbs_rank)); }
       if (d.age != null) { metrics.append(stat('AGE', d.age.toFixed(1))); }
       ranks.append(metrics);
-      body.append(ranks);
+      if (isAdmin) { body.append(ranks); }
 
       var actions = el('div', 'player-actions');
       if (d.advanced) { actions.append(action('adv-icon', '\ud83d\udcc8 Advanced stats', d.name, { advanced: JSON.stringify(d.advanced) })); }
       if (d.prospects && d.prospects.length) { actions.append(action('prospect-icon', '\ud83d\ude80 Prospect rankings', d.name, { prospects: JSON.stringify(d.prospects) })); }
       actions.append(action('news-icon', '\ud83d\udcf0 News', d.name, {}));
-      if (d.notices && d.notices.length) {
-        var marks = (d.notices.some(function (n) { return n.kind === 'violation'; }) ? '\ud83d\udea8' : '')
-          + (d.notices.some(function (n) { return n.kind === 'warning'; }) ? '\u26a0\ufe0f' : '');
-        actions.append(action('note-icon', marks + ' Notifications', d.name, { notices: JSON.stringify(d.notices) }));
-      }
-      body.append(actions);
+      if (isAdmin) { body.append(actions); }
 
       if (d.report.length) {
         body.append(el('p', 'player-section', 'Scouting report'));

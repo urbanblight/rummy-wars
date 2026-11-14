@@ -52,18 +52,20 @@
       <a class="constitution-link" href="{{ url_for('free_agents') }}">
         <span>
           <small>FREE AGENTS</small>
-          <strong>Available players by value over replacement</strong>
+          <strong>Available players by CBS rank</strong>
         </span>
         <span aria-hidden="true">→</span>
       </a>
 
+      {% if is_admin %}
       <a class="constitution-link" href="{{ url_for('prospects_page') }}">
         <span>
           <small>PROSPECTS</small>
-          <strong>FanGraphs and Baseball Prospectus prospect rankings</strong>
+          <strong>Prospect rankings from various sources</strong>
         </span>
         <span aria-hidden="true">→</span>
       </a>
+      {% endif %}
     </div>
 
     <section class="upload-panel" aria-labelledby="upload-title">

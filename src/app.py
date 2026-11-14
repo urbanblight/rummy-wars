@@ -3,8 +3,10 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import sys
 import tempfile
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from urllib.parse import quote, urlencode
 from xml.etree import ElementTree
 
@@ -13,9 +15,10 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 try:
-    from . import auth, league, projections, prospects, utils, zscores
+    from . import auth, db, league, projections, prospects, utils, zscores
 except ImportError:  # pragma: no cover - supports direct module imports
     import auth
+    import db
     import league
     import projections
     import prospects
@@ -302,6 +305,45 @@ def prospects_page():
         sort_base=url_for("prospects_page", type=kind, position=position, free="1" if free_only else None),
         offseason=MODE == "offseason",
     )
+
+
+def _import_lineups_module():
+    """The lineup importer from ``scripts/``, which sits beside ``src/`` rather than inside it."""
+    for folder in (Path(__file__).resolve().parent, Path(__file__).resolve().parent.parent / "scripts"):
+        if str(folder) not in sys.path:
+            sys.path.append(str(folder))
+    import import_lineups
+
+    return import_lineups
+
+
+@app.post("/teams/<int:team_id>/lineup")
+def upload_lineup(team_id: int):
+    """Replace a team's lineup with an uploaded CBS roster-overview CSV (admin, commish or manager)."""
+    if league.get_team(team_id) is None:
+        abort(404)
+    if not auth.can_edit_team(team_id):
+        abort(403)
+    upload = request.files.get("lineup")
+    if upload is None or not upload.filename:
+        flash("Choose a CBS roster CSV to upload.", "error")
+        return redirect(url_for("team", team_id=team_id))
+
+    importer = _import_lineups_module()
+    try:
+        players = importer.parse_lineup(upload.read().decode("utf-8-sig"))
+        lineup = importer.parse_team_filename(os.path.basename(upload.filename), team_id)
+        with db.connect() as conn:
+            importer.ensure_schema(conn)
+            importer.store_lineup(conn, lineup, players, importer.PlayerIndex.load(conn), upload.filename)
+    except (ValueError, UnicodeDecodeError) as error:
+        flash(f"Could not read that lineup: {error}", "error")
+    except Exception:
+        LOGGER.exception("Lineup upload failed for team %s", team_id)
+        flash("The lineup could not be saved. Check the server log for details.", "error")
+    else:
+        flash(f"Lineup updated: {len(players)} players as of {lineup.effective_date}.", "success")
+    return redirect(url_for("team", team_id=team_id))
 
 
 @app.post("/teams/<int:team_id>/evaluate")

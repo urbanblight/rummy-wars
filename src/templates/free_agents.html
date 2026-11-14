@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_players.html" import player_table, advanced_modal, advanced_modal_script, news_modal, news_modal_script %}
+{% from "_players.html" import player_table, advanced_modal, advanced_modal_script, news_modal, news_modal_script with context %}
 
 {% block title %}RUMMY WARS Free agents{% endblock %}
 
@@ -9,7 +9,7 @@
       <div>
         <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / FREE AGENTS</p>
         <h1>Free agents</h1>
-        <p class="muted">Available players, best SGP versus replacement first by default. Click a column heading to re-sort.</p>
+        <p class="muted">Available players, best CBS rank first by default. Click a column heading to re-sort.</p>
       </div>
       <a class="text-link" href="{{ url_for('index') }}">Home <span aria-hidden="true">-></span></a>
     </header>
@@ -37,7 +37,7 @@
         </div>
       </div>
       <h3 id="players-title">{{ kind|capitalize }}</h3>
-      {{ player_table(players, show_roster=False, sort={'key': sort, 'dir': sort_dir, 'base': sort_base}) }}
+      {{ player_table(players, show_roster=False, sort={'key': sort, 'dir': sort_dir, 'base': sort_base}, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
       <p id="free-agent-status" class="muted" role="status">{% if not players %}No free agents found{% if position %} at {{ position }}{% endif %}.{% endif %}</p>
       <div id="free-agent-sentinel" data-type="{{ kind }}" data-position="{{ position }}" data-sort="{{ sort }}" data-dir="{{ sort_dir }}" data-offset="{{ players|length }}" data-url="{{ url_for('free_agent_rows') }}"{% if not has_more %} hidden{% endif %}></div>
     </section>

@@ -194,3 +194,13 @@ def test_main_imports_a_folder_and_reports_errors(tmp_path, conn, capsys):
     (folder / "roster-overview-99-20260928.csv").write_text(LINEUP)
     assert import_lineups.main([str(folder)]) == 1
     assert "no team with id 99" in capsys.readouterr().err
+
+
+def test_parse_team_filename_forms():
+    from import_lineups import LineupFile, parse_team_filename
+
+    assert parse_team_filename("roster-overview-20250914.csv", 7) == LineupFile(7, None, "2025-09-14")
+    assert parse_team_filename("roster-overview-12-20250914.csv", 7) == LineupFile(7, 12, "2025-09-14")
+    for bad in ("roster-overview-3-12-20250914.csv", "roster-overview-20251345.csv", "lineup.csv"):
+        with pytest.raises(ValueError):
+            parse_team_filename(bad, 7)

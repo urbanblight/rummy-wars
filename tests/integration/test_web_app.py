@@ -121,13 +121,13 @@ class WebAppIntegrationTests(unittest.TestCase):
         load.return_value = []
         response = self.client.get("/free-agents?type=pitchers")
         self.assertEqual(response.status_code, 200)
-        load.assert_called_once_with("Pitcher", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="rank", direction="asc")
+        load.assert_called_once_with("Pitcher", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="cbs", direction="asc")
         self.assertIn("No free agents found.", response.get_data(as_text=True))
 
         rows = self.client.get("/free-agents/rows?type=batters&offset=50")
         self.assertEqual(rows.status_code, 200)
         self.assertEqual(rows.headers["X-Has-More"], "0")
-        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="rank", direction="asc")
+        load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="cbs", direction="asc")
 
     @patch("zscores.load_free_agents")
     def test_free_agents_sort_is_passed_through_and_headers_link(self, load):
@@ -143,9 +143,9 @@ class WebAppIntegrationTests(unittest.TestCase):
     def test_free_agents_filter_by_position(self, load):
         load.return_value = []
         self.client.get("/free-agents?type=batters&position=SS")
-        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position="SS", sort="rank", direction="asc")
+        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position="SS", sort="cbs", direction="asc")
         self.client.get("/free-agents/rows?type=pitchers&position=RP&offset=50")
-        load.assert_called_with("Pitcher", 50, FREE_AGENT_PAGE_SIZE + 1, position="RP", sort="rank", direction="asc")
+        load.assert_called_with("Pitcher", 50, FREE_AGENT_PAGE_SIZE + 1, position="RP", sort="cbs", direction="asc")
         self.assertEqual(self.client.get("/free-agents?type=pitchers&position=SS").status_code, 404)
 
     def test_free_agents_rejects_unknown_type_and_negative_offset(self):
@@ -328,7 +328,7 @@ class WebAppIntegrationTests(unittest.TestCase):
                 )
 
         text = response.get_data(as_text=True)
-        self.assertNotIn('class="note-icon"', text)
+        self.assertEqual(text.count('class="note-icon"'), 2)
         self.assertIn("Yainer Diaz is placed in an Injured slot and was activated 2026-06-01", text)
         self.assertIn('"kind": "violation"', text)
         self.assertIn('"kind": "warning"', text)
@@ -435,7 +435,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         """Expected parser errors should be shown as upload feedback."""
         response = self.client.post(
             "/evaluate",
-            data={"roster": (io.BytesIO(b"bad CSV"), "roster.csv")},
+            data={"roster": (io.BytesIO(b"bad CSV"), "roster-overview-2-20250914.csv")},
             content_type="multipart/form-data",
             follow_redirects=True,
         )
@@ -553,3 +553,42 @@ class WebAppIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main() # pragma: no cover
+
+
+class LineupUploadPermissionTests(unittest.TestCase):
+    """Only the ADMIN, a COMMISH or the team's manager may upload a lineup."""
+
+    def setUp(self):
+        self.client = app.test_client()
+        self.csv = (Path(__file__).parents[2] / "tests/fixtures/cbs-roster-export.csv").read_bytes()
+
+    def _post(self, email, manager_email=None, commish=""):
+        env = {"K_SERVICE": "x", "ADMIN": "admin@example.com", "COMMISH": commish}
+        row = (manager_email,) if manager_email else None
+        with patch.dict("os.environ", env), \
+                patch("auth.current_user", return_value=email), \
+                patch("app.league.get_team", return_value={"id": 3}), \
+                patch("auth.db", create=True), \
+                patch("db.connect") as connect, \
+                patch("app._import_lineups_module") as importer:
+            connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = row
+            response = self.client.post(
+                "/teams/3/lineup", data={"lineup": (io.BytesIO(self.csv), "roster-overview-2-20250914.csv")},
+                content_type="multipart/form-data",
+            )
+            return response, importer
+
+    def test_stranger_is_forbidden(self):
+        response, importer = self._post("x@example.com", manager_email="m@example.com")
+        self.assertEqual(response.status_code, 403)
+        importer.return_value.store_lineup.assert_not_called()
+
+    def test_manager_commish_and_admin_may_upload(self):
+        for email, kwargs in (
+            ("M@example.com", {"manager_email": "m@example.com"}),
+            ("c2@example.com", {"commish": "c1@example.com, c2@example.com"}),
+            ("admin@example.com", {}),
+        ):
+            response, importer = self._post(email, **kwargs)
+            self.assertEqual(response.status_code, 302, email)
+            importer.return_value.store_lineup.assert_called_once()
