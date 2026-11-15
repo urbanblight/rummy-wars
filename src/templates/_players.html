@@ -1,0 +1,625 @@
+{# Shared player list pieces: a table of scored players and the advanced stats modal that goes with it. #}
+{% macro sort_header(label, key, sort, css="") %}
+  {%- if sort -%}
+    {%- set active = sort.key == key -%}
+    {%- set next_dir = ('asc' if sort.dir == 'desc' else 'desc') if active else '' -%}
+    <th{% if css %} class="{{ css }}"{% endif %}{% if active %} aria-sort="{{ 'descending' if sort.dir == 'desc' else 'ascending' }}"{% endif %}><a class="sort-link" href="{{ sort.base }}&sort={{ key|urlencode }}{% if next_dir %}&dir={{ next_dir }}{% endif %}">{{ label }}{% if active %} <span aria-hidden="true">{{ '▼' if sort.dir == 'desc' else '▲' }}</span>{% endif %}</a></th>
+  {%- else -%}
+    <th{% if css %} class="{{ css }}"{% endif %}>{{ label }}</th>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro player_table(players, show_roster=True, notices=none, sort=none, show_rank=True, color_stats=True, show_vr=True) %}
+  {% set cols = stat_columns(players) %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>{{ sort_header('Player', 'name', sort) }}{% if show_roster %}<th class="tight">Slot</th>{% endif %}{{ sort_header('CBS', 'cbs', sort, 'num tight') }}{% if show_rank %}{{ sort_header('Rank', 'rank', sort, 'num tight') }}{% endif %}{% if show_vr %}{{ sort_header('SGP VR', 'vr', sort, 'num sgp-vr') }}{% endif %}{% for col in cols %}{{ sort_header(col, 'stat:' ~ col, sort, 'num stat') }}{% endfor %}</tr></thead>
+      <tbody>
+        {{ player_rows(players, show_roster, notices, show_rank, color_stats, show_vr) }}
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+{% macro player_rows(players, show_roster=True, notices=none, show_rank=True, color_stats=True, show_vr=True) %}
+        {% set cols = stat_columns(players) %}
+        {% for player in players %}
+          <tr>
+            {% set found = notices.get(player.name) if notices else none %}
+            {% set cbs = player.player_id|cbs_id %}
+            {% set bp = player.player_id|bp_rank %}
+            {% set prospects = player.player_id|prospect_ranks %}
+            {% set profile = player.player_id|player_profile %}
+            {% set payload = {
+              'name': player.name, 'team': player.team, 'positions': player.eligible_positions, 'status': player.status,
+              'slot': player.roster_slot if show_roster else none, 'cbs_rank': player.cbs_rank, 'bp': bp,
+              'cbs_url': (cbs_player_url ~ (cbs|urlencode)) if cbs else none, 'links': profile.links, 'age': profile.age,
+              'report': profile.report, 'advanced': player.advanced_payload() if player.z_total is not none else none,
+              'prospects': prospects, 'notices': found or [],
+            } %}
+            <td><button type="button" class="player-open" aria-label="Details for {{ player.name }}" data-player='{{ payload|tojson }}'><strong>{{ player.name }}</strong></button><small>{% if player.team %}<span class="player-team">{{ player.team }}</span> &middot; {% endif %}{{ player.eligible_positions|join(', ') }} <button type="button" class="news-icon news-flag" aria-label="Recent news for {{ player.name }}" data-name="{{ player.name }}" hidden>📰</button>{% if prospects and is_admin %}<button type="button" class="prospect-icon" aria-label="Prospect rankings for {{ player.name }}" data-name="{{ player.name }}" data-prospects='{{ prospects|tojson }}'>🚀</button>{% endif %}{% if found %}<button type="button" class="note-icon" aria-label="Roster notifications for {{ player.name }}" data-name="{{ player.name }}" data-notices='{{ found|tojson }}'>{% if found|selectattr('kind', 'equalto', 'violation')|list %}🚨{% endif %}{% if found|selectattr('kind', 'equalto', 'warning')|list %}⚠️{% endif %}</button>{% endif %}</small></td>
+            {% set vr = player.sgp_above_replacement.get('total') %}
+            {% if show_roster %}<td class="narrow tight">{{ player.roster_slot }}</td>{% endif %}
+            <td class="num tight">{% if player.cbs_rank is not none %}{{ player.cbs_rank }}{% endif %}</td>
+            {% if show_rank %}<td class="num tight sgp-vr">{% if vr %}{{ vr[1] }}{% endif %}</td>{% endif %}
+            {% if show_vr %}<td class="num sgp-vr">{% if vr %}<span class="{{ 'pos' if vr[0] > 1 else ('neg' if vr[0] < -1 else '') }}">{{ vr[0]|signed }}</span>{% endif %}</td>{% endif %}
+            {% for col in cols %}{% set cat_vr = player.sgp_above_replacement.get(col) %}<td class="num stats">{% if col in player.scoring_stats %}<span{% if color_stats %} class="{{ 'pos' if cat_vr and cat_vr[0] > 1 else ('neg' if cat_vr and cat_vr[0] < -1 else '') }}"{% endif %}>{{ player.scoring_stats[col]|stat_value(col) }}</span>{% endif %}</td>{% endfor %}
+          </tr>
+        {% endfor %}
+{% endmacro %}
+
+{% macro status_accordion(players, player_type, status, title, notices=none, show_rank=True, color_stats=True, show_vr=True) %}
+  {% if players %}
+    <details class="roster-accordion" data-player-type="{{ player_type }}" data-status="{{ status }}">
+      <summary>{{ title }} ({{ players|length }})</summary>
+      {{ player_table(players, notices=notices, show_rank=show_rank, color_stats=color_stats, show_vr=show_vr) }}
+    </details>
+  {% endif %}
+{% endmacro %}
+
+{% macro advanced_modal() %}
+  <dialog id="adv-modal" class="adv-modal" aria-labelledby="adv-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">ADVANCED STATS</p>
+          <h2 id="adv-modal-title"></h2>
+        </div>
+        <div class="adv-head-actions">
+          <span class="adv-info">
+            <button type="button" class="adv-info-icon" aria-label="What are Z and SGP?" aria-describedby="adv-info-tip">i</button>
+            <dl class="adv-info-tip" id="adv-info-tip" role="tooltip">
+              <dt>Z</dt>
+              <dd>Standard deviations above (+) or below (&minus;) the average of the top 250 players of the same type (batters or pitchers) in that category. Every category counts equally, and the total is the average across categories.</dd>
+              <dt>SGP</dt>
+              <dd>Standings points the player is worth in that category, based on how much of the stat it has taken to gain a point in past seasons. Rate stats are scaled by playing time.</dd>
+              <dt>#</dt>
+              <dd>Rank among all players in the pool, 1 being best.</dd>
+              <dt>VR</dt>
+              <dd>Versus replacement: the Z or SGP minus that of a replacement player: the average of the 5 best free agents at the player's position, ranked by total (the same players for every stat, so the stats add up to the total). If he has several positions, the one with the lowest replacement is used.</dd>
+            </dl>
+          </span>
+          <button type="button" class="adv-close" aria-label="Close" autofocus>&times;</button>
+        </div>
+      </header>
+      <div class="adv-cols" aria-hidden="true"><span></span><span>Z</span><span>SGP</span><span>Z VR</span><span>SGP VR</span></div>
+      <div class="adv-total"><span>TOTAL</span><div class="adv-metrics" id="adv-modal-total"></div></div>
+      <div class="adv-cells" id="adv-modal-cells"></div>
+    </div>
+  </dialog>
+  <dialog id="player-modal" class="adv-modal" aria-labelledby="player-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">PLAYER</p>
+          <h2 id="player-modal-title"></h2>
+          <p class="muted" id="player-modal-meta"></p>
+        </div>
+        <button type="button" class="adv-close player-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="player-modal-body"></div>
+    </div>
+  </dialog>
+  <dialog id="prospect-modal" class="adv-modal" aria-labelledby="prospect-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">PROSPECT RANKINGS</p>
+          <h2 id="prospect-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close" aria-label="Close">&times;</button>
+      </header>
+      <div class="prospect-lists" id="prospect-modal-lists"></div>
+    </div>
+  </dialog>
+{% endmacro %}
+
+{% macro advanced_modal_script() %}
+<script>
+  /**
+   * Advanced stats modal: on click of an .adv-icon button, parses its data-advanced JSON
+   * (z-score and SGP values with ranks, overall and per category) and renders them into the
+   * dialog. Also handles the info popover toggle and closing the dialog.
+   * Uses one delegated document listener so rows added later (infinite scroll) work.
+   */
+  (function () {
+    var modal = document.getElementById('adv-modal');
+    /**
+     * Formats a signed number with two decimals, using a real minus sign for display.
+     *
+     * @param {number} v - Value to format.
+     * @returns {string} Text such as '+1.25' or '−' followed by the magnitude.
+     */
+    function fmt(v) { return (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(2); }
+    /**
+     * Picks a color class so only notable values (beyond one unit) are highlighted.
+     *
+     * @param {number} v - Value being displayed.
+     * @returns {string} 'pos', 'neg', or '' for unremarkable values.
+     */
+    function cls(v) { return v > 1 ? 'pos' : (v < -1 ? 'neg' : ''); }
+    /**
+     * Appends one value/rank box to a container. A null value renders a dash with no rank,
+     * since players can lack data for a given measure.
+     *
+     * @param {Element} parent - Container to append to.
+     * @param {?number} value - Metric value, or null/undefined if unavailable.
+     * @param {number} rank - Rank among all players for this metric.
+     * @param {boolean} divider - Whether to draw a divider before this box.
+     * @returns {void}
+     */
+    function metric(parent, value, rank, divider) {
+      var box = document.createElement('div');
+      box.className = divider ? 'adv-metric adv-metric-divider' : 'adv-metric';
+      var valueEl = document.createElement('strong');
+      var rankEl = document.createElement('small');
+      if (value === null || value === undefined) {
+        valueEl.textContent = '\u2014';
+      } else {
+        valueEl.textContent = fmt(value);
+        valueEl.className = cls(value);
+        rankEl.textContent = '#' + rank;
+      }
+      box.append(valueEl, rankEl);
+      parent.append(box);
+    }
+    /**
+     * Fills a container with the four metrics in a fixed order: z, SGP, z above replacement,
+     * SGP above replacement.
+     *
+     * @param {Element} el - Container to fill.
+     * @param {Object} row - Metric values and ranks (z, z_rank, sgp, sgp_rank, z_repl, sgp_repl, ...).
+     * @returns {void}
+     */
+    function fill(el, row) {
+      metric(el, row.z, row.z_rank, false);
+      metric(el, row.sgp, row.sgp_rank, false);
+      metric(el, row.z_repl, row.z_repl_rank, true);
+      metric(el, row.sgp_repl, row.sgp_repl_rank, false);
+    }
+    // Delegated click handler: open the modal, toggle the info popover, or close the dialog.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.adv-icon');
+      if (btn) {
+        // Payload is embedded by the server in the button's data attribute.
+        var data = JSON.parse(btn.dataset.advanced);
+        document.getElementById('adv-modal-title').textContent = btn.dataset.name;
+        var totalEl = document.getElementById('adv-modal-total');
+        totalEl.textContent = '';
+        fill(totalEl, data.total);
+        var cells = document.getElementById('adv-modal-cells');
+        cells.textContent = '';
+        data.cats.forEach(function (c) {
+          var cell = document.createElement('div');
+          cell.className = 'adv-cell';
+          var label = document.createElement('span');
+          label.textContent = c.cat;
+          var metrics = document.createElement('div');
+          metrics.className = 'adv-metrics';
+          fill(metrics, c);
+          cell.append(label, metrics);
+          cells.append(cell);
+        });
+        // Reset the info popover so it starts collapsed each time the modal opens.
+        document.querySelector('.adv-info').classList.remove('open');
+        modal.showModal();
+      } else if (e.target.closest('.adv-info-icon')) {
+        e.target.closest('.adv-info').classList.toggle('open');
+      } else if (e.target === modal || e.target.closest('.adv-close')) {
+        modal.close();
+      }
+    });
+  })();
+  /**
+   * Player detail modal: on click of a .player-open button, parses its data-player JSON and
+   * builds the dialog body (rankings, action buttons, scouting report, profile links).
+   * Rankings and actions are only shown to admins.
+   */
+  (function () {
+    var modal = document.getElementById('player-modal');
+    var body = document.getElementById('player-modal-body');
+    var isAdmin = document.body.hasAttribute('data-admin');
+    /**
+     * Creates an element with optional class and text. Text is set via textContent so
+     * server-supplied strings are never interpreted as HTML.
+     *
+     * @param {string} tag - Element tag name.
+     * @param {string} [cls] - CSS class name(s).
+     * @param {string} [text] - Text content.
+     * @returns {HTMLElement} The new element.
+     */
+    function el(tag, cls, text) {
+      var node = document.createElement(tag);
+      if (cls) { node.className = cls; }
+      if (text !== undefined) { node.textContent = text; }
+      return node;
+    }
+    /**
+     * Builds a labeled stat box, with an optional signed change indicator.
+     *
+     * @param {string} label - Caption shown under the value.
+     * @param {string} value - Main displayed value.
+     * @param {?number} [change] - Rank movement; positive is shown as gain, negative as loss.
+     * @returns {HTMLElement} The stat box.
+     */
+    function stat(label, value, change) {
+      var box = el('div', 'adv-metric');
+      box.append(el('strong', '', value), el('small', '', label));
+      if (change) {
+        box.append(el('small', change > 0 ? 'pos' : 'neg', (change > 0 ? '+' : '\u2212') + Math.abs(change)));
+      }
+      return box;
+    }
+    /**
+     * Builds an action button that carries its payload in data attributes, so the existing
+     * delegated click handlers (advanced stats, prospects, news) pick it up.
+     *
+     * @param {string} cls - Class that routes the click to the right handler.
+     * @param {string} label - Button text.
+     * @param {string} name - Player name, stored in data-name.
+     * @param {Object<string, string>} data - Extra data-* attributes to set.
+     * @returns {HTMLButtonElement} The button.
+     */
+    function action(cls, label, name, data) {
+      var button = el('button', cls + ' player-action', label);
+      button.type = 'button';
+      button.dataset.name = name;
+      Object.keys(data).forEach(function (key) { button.dataset[key] = data[key]; });
+      return button;
+    }
+    /**
+     * Renders a player's details into the modal, replacing any previous content.
+     *
+     * @param {Object} d - Player payload (name, team, positions, status, slot, bp, report, links, ...).
+     * @returns {void}
+     */
+    function render(d) {
+      document.getElementById('player-modal-title').textContent = d.name;
+      document.getElementById('player-modal-meta').textContent = [
+        d.team, d.positions.join(', '), [d.status, d.slot].filter(Boolean).join(' \u00b7 ')
+      ].filter(Boolean).join(' \u00b7 ');
+      body.textContent = '';
+
+      var ranks = el('div', 'prospect-list');
+      var metrics = el('div', 'prospect-metrics');
+      // bp is a [rank, change] pair; show a dash when the player is unranked.
+      metrics.append(stat('BP DYNASTY', d.bp ? '#' + d.bp[0] : '\u2014', d.bp ? d.bp[1] : null));
+      // cbs_rank is only present on some pages, so check the key exists first.
+      if ('cbs_rank' in d) { metrics.append(stat('CBS RANK', d.cbs_rank === null ? '\u2014' : '#' + d.cbs_rank)); }
+      if (d.age != null) { metrics.append(stat('AGE', d.age.toFixed(1))); }
+      ranks.append(metrics);
+      if (isAdmin) { body.append(ranks); }
+
+      var actions = el('div', 'player-actions');
+      if (d.advanced) { actions.append(action('adv-icon', '\ud83d\udcc8 Advanced stats', d.name, { advanced: JSON.stringify(d.advanced) })); }
+      if (d.prospects && d.prospects.length) { actions.append(action('prospect-icon', '\ud83d\ude80 Prospect rankings', d.name, { prospects: JSON.stringify(d.prospects) })); }
+      actions.append(action('news-icon', '\ud83d\udcf0 News', d.name, {}));
+      if (isAdmin) { body.append(actions); }
+
+      if (d.report.length) {
+        body.append(el('p', 'player-section', 'Scouting report'));
+        var grid = el('div', 'scout-grid');
+        d.report.forEach(function (pair) {
+          var cell = el('div', 'scout-cell');
+          cell.append(el('span', '', pair[0]), el('strong', '', pair[1]));
+          grid.append(cell);
+        });
+        body.append(grid);
+      }
+
+      // CBS link comes from its own field, so prepend it to the generic profile links.
+      var links = (d.cbs_url ? [['CBS', d.cbs_url]] : []).concat(d.links);
+      if (links.length) {
+        body.append(el('p', 'player-section', 'Profiles'));
+        var row = el('div', 'player-links');
+        links.forEach(function (pair) {
+          var a = el('a', '', pair[0] + ' \u2197');
+          a.href = pair[1];
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          row.append(a);
+        });
+        body.append(row);
+      }
+    }
+    // Delegated click handler: open the modal for a player, or close it.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.player-open');
+      if (btn) {
+        render(JSON.parse(btn.dataset.player));
+        modal.showModal();
+      } else if (e.target === modal || e.target.closest('.player-close')) {
+        modal.close();
+      }
+    });
+  })();
+  /**
+   * Prospect rankings modal: on click of a .prospect-icon button, parses its data-prospects
+   * JSON and lists the player's rank on each prospect list with org rank, FV, level and ETA.
+   */
+  (function () {
+    var modal = document.getElementById('prospect-modal');
+    /**
+     * Builds a labeled stat box, with an optional signed change indicator.
+     *
+     * @param {string} label - Caption shown under the value.
+     * @param {string} value - Main displayed value.
+     * @param {?number} [change] - Rank movement; positive is shown as gain, negative as loss.
+     * @returns {HTMLElement} The stat box.
+     */
+    function stat(label, value, change) {
+      var box = document.createElement('div');
+      box.className = 'adv-metric';
+      var strong = document.createElement('strong');
+      strong.textContent = value;
+      var small = document.createElement('small');
+      small.textContent = label;
+      box.append(strong, small);
+      if (change) {
+        var delta = document.createElement('small');
+        delta.className = change > 0 ? 'pos' : 'neg';
+        delta.textContent = (change > 0 ? '+' : '\u2212') + Math.abs(change);
+        box.append(delta);
+      }
+      return box;
+    }
+    // Delegated click handler: open the modal for a prospect, or close it.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.prospect-icon');
+      if (btn) {
+        document.getElementById('prospect-modal-title').textContent = btn.dataset.name;
+        var lists = document.getElementById('prospect-modal-lists');
+        lists.textContent = '';
+        JSON.parse(btn.dataset.prospects).forEach(function (entry) {
+          var row = document.createElement('div');
+          row.className = 'prospect-list';
+          var label = document.createElement('span');
+          label.textContent = entry.list;
+          var metrics = document.createElement('div');
+          metrics.className = 'prospect-metrics';
+          metrics.append(stat('RANK', entry.rank === null ? '\u2014' : '#' + entry.rank, entry.change));
+          if (entry.org_rank !== null) { metrics.append(stat('ORG', '#' + entry.org_rank)); }
+          if (entry.fv) { metrics.append(stat('FV', entry.fv)); }
+          if (entry.level) { metrics.append(stat('LEVEL', entry.level)); }
+          if (entry.eta) { metrics.append(stat('ETA', entry.eta)); }
+          row.append(label, metrics);
+          lists.append(row);
+        });
+        modal.showModal();
+      // The modal check avoids matching .adv-close buttons that belong to other dialogs.
+      } else if (e.target === modal || (modal.open && e.target.closest('#prospect-modal .adv-close'))) {
+        modal.close();
+      }
+    });
+  })();
+</script>
+{% endmacro %}
+
+{% macro news_modal() %}
+  <dialog id="news-modal" class="adv-modal" aria-labelledby="news-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">RECENT NEWS</p>
+          <h2 id="news-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close news-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="news-modal-list" aria-live="polite"></div>
+    </div>
+  </dialog>
+{% endmacro %}
+
+{% macro news_modal_script(lazy=false) %}
+<script>
+  /**
+   * News modal and badge scanner: loads recent headlines for a player on demand when a
+   * .news-icon is clicked, and in the background flags icons whose player has news from
+   * today or yesterday. Responses are cached per player name.
+   */
+  (function () {
+    var modal = document.getElementById('news-modal');
+    var list = document.getElementById('news-modal-list');
+    // Token for the latest click; stale responses from earlier clicks are discarded.
+    var latest = 0;
+    var newsUrl = '{{ url_for("player_news") }}';
+    // Maps player name to the in-flight or settled fetch promise.
+    var cache = {};
+    /**
+     * Fetches news for a player, caching the promise so concurrent callers share one request.
+     * A failed request is evicted from the cache so it can be retried later.
+     *
+     * @param {string} name - Player name.
+     * @returns {Promise<Array<Object>>} Resolves to news items (title, link, source, published).
+     */
+    function loadNews(name) {
+      if (!cache[name]) {
+        cache[name] = fetch(newsUrl + '?name=' + encodeURIComponent(name))
+          .then(function (r) { if (!r.ok) { throw new Error(); } return r.json(); })
+          .catch(function (err) { delete cache[name]; throw err; });
+      }
+      return cache[name];
+    }
+    /**
+     * Replaces the modal list with a single status paragraph.
+     *
+     * @param {string} text - Message to display.
+     * @returns {void}
+     */
+    function message(text) {
+      var p = document.createElement('p');
+      p.textContent = text;
+      list.textContent = '';
+      list.append(p);
+    }
+    /**
+     * Checks whether a date falls on today or yesterday (local time), comparing by calendar day
+     * rather than elapsed hours.
+     *
+     * @param {string} dateString - Any string parseable by Date.
+     * @returns {boolean} True if recent; false if unparseable or older.
+     */
+    function isRecentDate(dateString) {
+      try {
+        var itemDate = new Date(dateString);
+        var today = new Date();
+        var yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        var itemDateStr = itemDate.toDateString();
+        var todayStr = today.toDateString();
+        var yesterdayStr = yesterday.toDateString();
+
+        return itemDateStr === todayStr || itemDateStr === yesterdayStr;
+      } catch (e) {
+        return false;
+      }
+    }
+    // Delegated click handler: open news for a player, or close the dialog.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.news-icon');
+      if (btn) {
+        // Bump the token so any earlier in-flight request is ignored when it resolves.
+        var request = ++latest;
+        document.getElementById('news-modal-title').textContent = btn.dataset.name;
+        message('Loading\u2026');
+        modal.showModal();
+        loadNews(btn.dataset.name)
+          .then(function (items) {
+            if (request !== latest) { return; }
+            if (!items.length) { message('No recent news found.'); return; }
+            list.textContent = '';
+            items.forEach(function (item) {
+              var p = document.createElement('p');
+              var a = document.createElement('a');
+              a.textContent = item.title;
+              a.href = item.link;
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              p.append(a);
+              var meta = [item.source, item.published].filter(Boolean).join(' \u00b7 ');
+              if (meta) {
+                var small = document.createElement('small');
+                small.textContent = ' ' + meta;
+                p.append(small);
+              }
+              list.append(p);
+            });
+          })
+          .catch(function () { if (request === latest) { message('Could not load news.'); } });
+      } else if (e.target === modal || e.target.closest('.news-close')) {
+        modal.close();
+      }
+    });
+    // Background badge scan: a small worker pool checks each icon's news without flooding the server.
+    var queue = [];
+    var running = 0;
+    /**
+     * Worker step: takes the next icon from the queue, loads its news, updates every icon for
+     * the same player, then recurses. A failure is swallowed so one player can't stall the queue.
+     *
+     * @returns {void}
+     */
+    function flagNext() {
+      var btn = queue.shift();
+      if (!btn) { running--; return; }
+      loadNews(btn.dataset.name)
+        .then(function (items) {
+          var recent = items.some(function (item) { return isRecentDate(item.published); });
+          document.querySelectorAll('.news-icon').forEach(function (icon) {
+            if (icon.dataset.name !== btn.dataset.name) { return; }
+            icon.classList.toggle('has-recent-news', recent);
+            if (icon.classList.contains('news-flag')) { icon.hidden = !recent; }
+          });
+        })
+        .catch(function () {})
+        .then(flagNext);
+    }
+    /**
+     * Starts workers up to the concurrency limit of 4.
+     *
+     * @returns {void}
+     */
+    function pump() {
+      while (running < 4 && queue.length > running) { running++; flagNext(); }
+    }
+    // On lazy pages, queues an icon's news check once its row scrolls into view. Otherwise (or
+    // without IntersectionObserver), every icon is checked immediately.
+    var viewObserver = {{ 'true' if lazy else 'false' }} && 'IntersectionObserver' in window
+      ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) { return; }
+          viewObserver.unobserve(entry.target);
+          queue.push(entry.target.newsIcon);
+        });
+        pump();
+      }, { rootMargin: '200px' })
+      : null;
+    /**
+     * Registers any icons not yet checked. Icons are observed via their table row (the flag
+     * button itself is hidden until news is found, so it has no layout box to intersect).
+     * Safe to call repeatedly; the data-news-checked flag prevents duplicates.
+     *
+     * @returns {void}
+     */
+    function scan() {
+      document.querySelectorAll('.news-icon:not([data-news-checked])').forEach(function (icon) {
+        icon.dataset.newsChecked = '1';
+        if (!viewObserver) { queue.push(icon); return; }
+        var target = icon.closest('tr') || icon.parentElement;
+        target.newsIcon = icon;
+        viewObserver.observe(target);
+      });
+      pump();
+    }
+    scan();
+    // Rescan when rows are added to the page (for example by infinite scroll).
+    new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+  })();
+</script>
+{% endmacro %}
+
+{% macro notice_modal() %}
+  <dialog id="note-modal" class="adv-modal" aria-labelledby="note-modal-title">
+    <div class="adv-board">
+      <header class="adv-board-head">
+        <div>
+          <p class="panel-kicker">NOTIFICATIONS</p>
+          <h2 id="note-modal-title"></h2>
+        </div>
+        <button type="button" class="adv-close note-close" aria-label="Close">&times;</button>
+      </header>
+      <div id="note-modal-list"></div>
+    </div>
+  </dialog>
+{% endmacro %}
+
+{% macro notice_modal_script() %}
+<script>
+  /**
+   * Notifications modal: on click of a .note-icon button, parses its data-notices JSON and
+   * lists each notice, using its kind as the paragraph class for styling.
+   */
+  (function () {
+    var modal = document.getElementById('note-modal');
+    // Delegated click handler: open the modal with the player's notices, or close it.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.note-icon');
+      if (btn) {
+        document.getElementById('note-modal-title').textContent = btn.dataset.name;
+        var list = document.getElementById('note-modal-list');
+        list.textContent = '';
+        JSON.parse(btn.dataset.notices).forEach(function (notice) {
+          var item = document.createElement('p');
+          item.className = notice.kind;
+          item.textContent = notice.message;
+          list.append(item);
+        });
+        modal.showModal();
+      } else if (e.target === modal || e.target.closest('.note-close')) {
+        modal.close();
+      }
+    });
+  })();
+</script>
+{% endmacro %}

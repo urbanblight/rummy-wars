@@ -10,3 +10,13 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 concurrency = ["greenlet"]
+source = ["."]
+omit = [".venv/*", "docs/*"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]

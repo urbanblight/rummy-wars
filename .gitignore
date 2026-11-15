@@ -443,3 +443,4 @@ pytest.ini
 # Files generated or used by the application in future development
 data/*
 data/**/*.csv
+client_secret_*.apps.googleusercontent.com.json
