@@ -160,7 +160,9 @@ class MlbMetadataHelperTests(unittest.TestCase):
             ]
         }]})
 
-        self.assertEqual(utils.get_mlb_latest_activation(player()), "2026-06-01")
+        self.assertEqual(utils.get_mlb_latest_activation(player()),
+            ("2026-06-01", "Activated from injured list"),
+        )
 
     @patch("utils.requests.get")
     def test_get_latest_callup_returns_effective_date(self, get):
@@ -238,7 +240,7 @@ class ValidatorBranchTests(unittest.TestCase):
             patch("utils.MAX_MINORS_IP", 0),
             patch("utils.get_mlbam_player_by_name", return_value=player()),
             patch("utils.is_il", return_value=False),
-            patch("utils.get_mlb_latest_activation", return_value="2026-06-01"),
+            patch("utils.get_mlb_latest_activation", return_value=("2026-06-01", "Activated from injured list")),
             patch("utils.is_milb", return_value=False),
             patch("utils.get_mlb_career_totals", side_effect=[
                 {"ab": 1, "ip": 0},
@@ -250,7 +252,7 @@ class ValidatorBranchTests(unittest.TestCase):
 
         self.assertEqual(violations, [])
         self.assertEqual(warnings, [
-            "Injured is placed in an Injured slot and was activated 2026-06-01",
+            "Injured is placed in an Injured slot and was activated 2026-06-01: Activated from injured list",
             "Batter is in a Minors slot but has more than than the league maximum ABs for Minors (1). Most recent call up was 2026-06-01",
             "Pitcher is in a Minors slot but has more than than the league maximum IPs for Minors (1). Most recent call up was 2026-06-01",
         ])
@@ -267,7 +269,7 @@ class ValidatorBranchTests(unittest.TestCase):
             patch("utils.MAX_MINORS_IP", 0),
             patch("utils.get_mlbam_player_by_name", return_value=player()),
             patch("utils.is_il", return_value=False),
-            patch("utils.get_mlb_latest_activation", return_value="2026-06-01"),
+            patch("utils.get_mlb_latest_activation", return_value=("2026-06-01", "Activated from injured list")),
             patch("utils.is_milb", return_value=False),
             patch("utils.get_mlb_career_totals", side_effect=[{"ab": 1, "ip": 0}, {"ab": 0, "ip": 1}]),
             patch("utils.get_mlb_latest_callup", return_value="2026-06-01"),
@@ -313,7 +315,7 @@ class ValidatorBranchTests(unittest.TestCase):
         self.assertEqual(roster.players[0].stats, {})
         self.assertEqual(roster.players[2].stats, {})
 
-    @patch("utils.get_mlb_latest_activation", return_value="2026-06-01")
+    @patch("utils.get_mlb_latest_activation", return_value=("2026-06-01", "Activated from injured list"))
     @patch("utils.is_il", return_value=False)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
     @patch("utils.MODE", "inseason")
@@ -321,10 +323,10 @@ class ValidatorBranchTests(unittest.TestCase):
         _, warnings = self.validate([roster_player("Injured", "Injured")])
 
         self.assertEqual(warnings, [
-            "Injured is placed in an Injured slot and was activated 2026-06-01"
+            "Injured is placed in an Injured slot and was activated 2026-06-01: Activated from injured list"
         ])
 
-    @patch("utils.get_mlb_latest_activation", return_value="2026-06-01")
+    @patch("utils.get_mlb_latest_activation", return_value=("2026-06-01", "Activated from injured list"))
     @patch("utils.is_il", return_value=False)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
     @patch("utils.MODE", "offseason")
@@ -332,7 +334,7 @@ class ValidatorBranchTests(unittest.TestCase):
         violations, warnings = self.validate([roster_player("Injured", "Injured")])
 
         self.assertIn(
-            "Injured is placed in an Injured slot and was activated 2026-06-01",
+            "Injured is placed in an Injured slot and was activated 2026-06-01: Activated from injured list",
             violations,
         )
         self.assertEqual(warnings, [])
