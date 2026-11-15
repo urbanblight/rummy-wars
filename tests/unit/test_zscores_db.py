@@ -2,6 +2,7 @@
 
 import importlib
 import time
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -76,8 +77,10 @@ def league(conn, monkeypatch):
     return conn
 
 
-def test_module_imports_as_a_package_member():
+def test_module_imports_as_a_package_member(monkeypatch):
     # Running as ``src.zscores`` takes the relative-import branch instead of the script fallback.
+    # ``pytest`` (unlike ``python -m pytest``) does not put the repository root on ``sys.path``.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
     module = importlib.import_module("src.zscores")
     assert module.PlayerIndex.__name__ == "PlayerIndex"
 
@@ -357,17 +360,6 @@ def test_free_agent_sort_validates_direction_and_key():
         zscores.free_agent_sort("Batter", "bogus", None)
 
 
-def test_free_agent_sort_expressions(monkeypatch):
-    expression = zscores._free_agent_sort_expression
-    assert expression("Pitcher", "name") == "name"
-    assert expression("Pitcher", "rank") == "sgp_total_above_replacement_rank"
-    assert expression("Pitcher", "vr") == "sgp_total_above_replacement"
-    assert expression("Pitcher", "stat:W+QS") == "(W + QS)"
-    assert expression("Pitcher", "stat:Kd9") == "(K * 9 / NULLIF(INNs, 0))"
-    assert expression("Pitcher", "stat:INN") == "`INNs`"
-    assert expression("Batter", "stat:BA") == "`AVG`"
-
-
 def test_load_free_agents_sorts_by_derived_stats_and_value(league):
     def names(player_type, **kwargs):
         return [p.name for p in zscores.load_free_agents(player_type, **kwargs)]
@@ -461,7 +453,7 @@ def test_value_rank_puts_ranked_players_first():
 
 def test_free_agent_sort_rejects_categories_the_league_does_not_score(monkeypatch):
     monkeypatch.setenv("BATTING_SCORING_CATEGORIES", "HR")
-    assert zscores.free_agent_sort("Batter", "stat:HR", "desc") == ("stat:HR", True)
+    assert zscores.free_agent_sort("Batter", "stat:HR", "desc") == ("stat|HR", True)
     with pytest.raises(ValueError):
         zscores.free_agent_sort("Batter", "stat:SB", None)
 

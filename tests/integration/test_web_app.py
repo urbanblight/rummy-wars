@@ -134,7 +134,7 @@ class WebAppIntegrationTests(unittest.TestCase):
     def test_free_agents_sort_is_passed_through_and_headers_link(self, load):
         load.return_value = []
         html = self.client.get("/free-agents?type=batters&sort=stat%3AHR&dir=asc").get_data(as_text=True)
-        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="stat:HR", direction="asc")
+        load.assert_called_with("Batter", 0, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="stat|HR", direction="asc")
         self.assertIn('data-sort="stat:HR" data-dir="asc"', html)
         self.client.get("/free-agents/rows?type=batters&sort=vr&offset=50")
         load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="vr", direction="desc")

@@ -23,6 +23,8 @@ def test_projection_stats_empty_without_database_or_tables(monkeypatch, database
     assert projections.load_stats("ZIPS", 2027, "Batter") == {}  # tables missing
     monkeypatch.delenv("DATABASE_URL")
     assert projections.load_stats("ZIPS", 2027, "Batter") == {}  # not configured
+    assert projections.systems() == []
+    assert projections.load_scores("ZIPS", 2027, "Batter") == {}
 
 
 def test_projected_active_sgp_vr_sums_systems_across_player_types(conn):

@@ -896,24 +896,6 @@ def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -
     return key, natural if not direction else direction == "desc"
 
 
-def _free_agent_sort_expression(player_type: str, key: str) -> str:
-    """The SQL expression a free-agent sort key orders by."""
-    if key == _SORT_NAME:
-        return "name"
-    if key == _SORT_CBS:
-        return "`rank`"
-    if key == _SORT_RANK:
-        return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
-    if key == _SORT_VR:
-        return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}"
-    category = key[len(_SORT_STAT_PREFIX):]
-    if category == "W+QS":
-        return "(W + QS)"
-    if category == "Kd9":
-        return "(K * 9 / NULLIF(INNs, 0))"
-    return f"`{TABLES[player_type][1].get(category, category)}`"
-
-
 def load_free_agents(
     player_type: str, offset: int = 0, limit: int = 50, position: str | None = None,
     sort: str | None = None, direction: str | None = None,

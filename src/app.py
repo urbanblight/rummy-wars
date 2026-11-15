@@ -291,7 +291,9 @@ def _free_agent_page(kind: str, offset: int, position: str, sort: str = "", dire
     fetched = zscores.load_free_agents(
         player_type, offset, FREE_AGENT_PAGE_SIZE + 1, position=position or None, sort=key, direction="desc" if descending else "asc",
     )
-    return fetched[:FREE_AGENT_PAGE_SIZE], len(fetched) > FREE_AGENT_PAGE_SIZE, key, descending
+    # ``key`` is the internal form (``stat|HR``); pages and infinite scroll must send back the public ``stat:HR``.
+    public_key = key.replace("stat|", "stat:", 1)
+    return fetched[:FREE_AGENT_PAGE_SIZE], len(fetched) > FREE_AGENT_PAGE_SIZE, public_key, descending
 
 
 @app.get("/free-agents")
