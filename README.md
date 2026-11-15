@@ -14,7 +14,7 @@ To access the Rummy Wars fantasy baseball league on the CBS Fantasy Baseball pla
 
 ## Refreshing the stats database
 
-The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in a MySQL database (8.0.13 or newer), configured by the `DATABASE_URL` environment variable (for example `mysql+pymysql://user:password@host:3306/rummy_wars`; put it in `.env`, which is not tracked by git). The Teams pages (`/teams`, listed in the order of the latest imported standings, and `/teams/<id>` for each team's players) read the same database. Rebuild it whenever the source files change:
+The player Z-scores, standings gain points (SGP) and above-replacement values shown on the results page are calculated ahead of time and stored in a MySQL database (8.0.19 or newer), configured by the `DATABASE_URL` environment variable (for example `mysql+pymysql://user:password@host:3306/rummy_wars`; put it in `.env`, which is not tracked by git). The Teams pages (`/teams`, listed in the order of the latest imported standings, and `/teams/<id>` for each team's players) read the same database. Rebuild it whenever the source files change:
 
 ```bash
 source .venv/bin/activate
