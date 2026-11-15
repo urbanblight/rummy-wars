@@ -34,6 +34,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import db  # noqa: E402
 
+# DDL for the snapshot tables; the (season_year, as_of_date) prefix of both
+# primary keys is what lets a re-import replace exactly one snapshot.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS standings (
     season_year INT NOT NULL,
@@ -64,12 +66,33 @@ CREATE TABLE IF NOT EXISTS standings_categories (
 
 
 def normalize_team_name(name: str) -> str:
-    """Match names across seasons: ignore case, punctuation, quote escapes and a leading 'The'."""
+    """Normalize a team name so it matches across seasons and export formats.
+
+    Ignores case, punctuation, quote escapes and a leading "The", because teams
+    are renamed slightly between years and the exports escape quotes.
+
+    Args:
+        name: Raw team name from a standings file or ``teams_history``.
+
+    Returns:
+        A lowercase alphanumeric key.
+    """
     name = re.sub(r"[^a-z0-9]", "", name.casefold().replace("\\", ""))
     return name[3:] if name.startswith("the") and len(name) > 3 else name
 
 
 def split_line(line: str) -> list[str]:
+    """Split one line of either export format into trimmed fields.
+
+    Tab-delimited pastes are split on tabs; otherwise the line is parsed as CSV
+    with backslash escapes. Trailing empty fields are dropped.
+
+    Args:
+        line: A single line of the standings file.
+
+    Returns:
+        The non-empty leading fields; an empty list for a blank line.
+    """
     if "\t" in line:
         fields = [field.replace("\\", "") for field in line.split("\t")]
     else:
@@ -81,11 +104,37 @@ def split_line(line: str) -> list[str]:
 
 
 def number(value: str) -> float:
+    """Parse a numeric field.
+
+    Args:
+        value: Text such as ``"12.5"`` or ``"-3"``.
+
+    Returns:
+        The value as a float.
+
+    Raises:
+        ValueError: If the text is not a number.
+    """
     return float(value)
 
 
 def parse_standings(text: str) -> tuple[list[dict], list[dict]]:
-    """Return (overall rows, category rows) keyed by raw team name."""
+    """Parse a standings export into overall and per-category rows.
+
+    A small state machine tracks which section (overall table, or one category
+    of the batting/pitching breakdown) each line belongs to.
+
+    Args:
+        text: Full file contents.
+
+    Returns:
+        ``(overall, categories)``: dicts keyed by the raw team name, with
+        ``rank/batting/pitching/total/change/behind`` for overall rows and
+        ``category/type/value/points/change`` for category rows.
+
+    Raises:
+        ValueError: If a numeric field cannot be parsed.
+    """
     overall: list[dict] = []
     categories: list[dict] = []
     section = None  # "overall" or "category"
@@ -123,6 +172,18 @@ def parse_standings(text: str) -> tuple[list[dict], list[dict]]:
 
 
 def load_team_ids(conn: db.Connection, year: int) -> dict[str, int]:
+    """Map normalized team names to ids for one season.
+
+    Args:
+        conn: Open database connection.
+        year: Season whose ``teams_history`` names to use.
+
+    Returns:
+        Mapping of ``normalize_team_name(name)`` to ``team_id``.
+
+    Raises:
+        RuntimeError: If ``teams_history`` has no rows for the season.
+    """
     rows = conn.execute(
         "SELECT team_id, name FROM teams_history WHERE season_year = %s", (year,)
     ).fetchall()
@@ -132,6 +193,22 @@ def load_team_ids(conn: db.Connection, year: int) -> dict[str, int]:
 
 
 def import_standings(path: Path, year: int, as_of: str) -> tuple[int, int]:
+    """Import one standings file as a snapshot, replacing any previous one.
+
+    Args:
+        path: Standings export file.
+        year: Season the file belongs to.
+        as_of: Snapshot date as ``YYYY-MM-DD``.
+
+    Returns:
+        ``(team rows, category rows)`` imported.
+
+    Raises:
+        ValueError: If the file has no overall standings or names teams that
+            are not in ``teams_history`` for the season.
+        RuntimeError: If the season has no ``teams_history`` rows.
+        FileNotFoundError: If ``path`` does not exist.
+    """
     overall, categories = parse_standings(path.read_text(encoding="utf-8-sig"))
     if not overall:
         raise ValueError(f"No overall standings found in {path}")
@@ -161,6 +238,15 @@ def import_standings(path: Path, year: int, as_of: str) -> tuple[int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments to parse instead of ``sys.argv[1:]`` (for tests).
+
+    Returns:
+        Process exit status: 0 on success, 1 on an import error. Invalid
+        arguments exit through ``argparse`` with status 2.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("file", type=Path, help="standings export, e.g. data/standings/2025.csv")
     parser.add_argument("--year", type=int, help="season year (default: number in the file name)")

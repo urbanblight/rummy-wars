@@ -13,8 +13,11 @@ except ImportError:  # pragma: no cover - supports direct module imports
     import db
     from player_ids import normalize_name
 
+# Sort keys accepted from the query string; anything else falls back to DEFAULT_SORT
+# (the best rank on any list).
 SORT_KEYS = ("name", "fangraphs", "bp", "mlb", "org", "age", "fv", "team")
 DEFAULT_SORT = "rank"
+# (display label, rankings_prospects column) scouting-report grades shown in the player modal.
 BATTING_REPORT = [
     ("Hit", "hit"), ("Pitch Sel", "pitch_sel"), ("Bat Ctrl", "bat_ctrl"), ("Con Style", "con_style"),
     ("Game Pwr", "game_pwr"), ("Raw Pwr", "raw_pwr"), ("Spd", "spd"), ("Fld", "fld"),
@@ -25,6 +28,7 @@ PITCHING_REPORT = [
     ("Sits", "sits"), ("Tops", "tops"), ("TJ Date", "tj_date"),
 ]
 REPORTS = {"Batter": BATTING_REPORT, "Pitcher": PITCHING_REPORT}
+# Columns selected from rankings_prospects; ``rank`` and ``change`` are quoted as reserved words.
 COLUMNS = ("source", "list_type", "player_id", "`rank`", "`change`", "org_rank", "name", "team", "pos", "sec_pos",
            "age", "fv", "level", "eta", "hit", "pitch_sel", "bat_ctrl", "con_style", "game_pwr", "raw_pwr", "spd",
            "fld", "versa", "hard_hit_pct", "tj_date", "fb_type", "fb", "sl", "cb", "ch", "cmd", "sits", "tops")
@@ -32,6 +36,12 @@ COLUMNS = ("source", "list_type", "player_id", "`rank`", "`change`", "org_rank",
 
 @dataclass
 class Prospect:
+    """One prospect merged from the FanGraphs, Baseball Prospectus and MLB lists.
+
+    Ranks are None where a list does not include the player. ``fantasy_team*`` name the
+    team whose latest lineup holds the player, and ``report`` is the scouting grades.
+    """
+
     name: str
     player_id: str | None = None
     team: str | None = None
@@ -62,6 +72,10 @@ def fv_number(fv: str | None) -> float | None:
 
 
 def sort_value(prospect: Prospect, key: str):
+    """The value to sort a prospect by for ``key``; any other key means the best rank on any list.
+
+    Returns None when the prospect has no value, so ``sort_prospects`` can place it last.
+    """
     if key == "name":
         return normalize_name(prospect.name)
     if key == "team":
@@ -92,6 +106,7 @@ def sort_prospects(prospects: list[Prospect], key: str, descending: bool) -> lis
 
 
 def _text(value) -> str | None:
+    """``value`` as a string, treating None and the empty string as missing."""
     return None if value is None or str(value) == "" else str(value)
 
 
@@ -148,6 +163,7 @@ def fantasy_teams(conn: db.Connection) -> dict[str, tuple[int, str]] | None:
     return {str(player_id): (team_id, name) for player_id, team_id, name in rows} or None
 
 
+# Display names for the ``source`` column values.
 SOURCE_LABELS = {"fangraphs": "FanGraphs", "bp": "Baseball Prospectus", "mlb": "MLB"}
 
 

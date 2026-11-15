@@ -45,8 +45,11 @@ import db  # noqa: E402
 from player_ids import PlayerIndex  # noqa: E402
 
 load_dotenv(REPO_ROOT / ".env", override=False)
+# Default folder scanned when no PATH is given.
 DEFAULT_DIR = REPO_ROOT / "data" / "prospects"
+# ``<source>-<year>-<type>.csv``; the type is free-form (batting, pitching, midseason, ...).
 FILE_PATTERN = re.compile(r"^(.+)-(\d{4})-([A-Za-z0-9_]+)\.csv$")
+# Positions that mark a pitcher in lists that mix batters and pitchers.
 PITCHER_POSITIONS = {"P", "SP", "RP", "SIRP", "MIRP", "LHP", "RHP"}
 
 # Export header (lower case) -> table column. Anything not listed (BP's Age and its
@@ -65,15 +68,20 @@ PITCHING_COLUMNS = {
     "age": "age", "tj date": "tj_date", "fb type": "fb_type", "fb": "fb", "sl": "sl", "cb": "cb",
     "ch": "ch", "cmd": "cmd", "sits": "sits", "tops": "tops",
 }
+# List type -> extra columns recognised for that type only.
 GRADE_COLUMNS = {"batting": BATTING_COLUMNS, "pitching": PITCHING_COLUMNS}
+# Columns coerced to nullable integers (blank or "-" becomes NULL).
 INTEGER_COLUMNS = ["rank", "change", "org_rank", "eta"]
 # Columns that only exist for one player type; a row needs one of them in a batting/pitching file.
 SPECIFIC = {kind: [c for c in columns.values() if c != "age"] for kind, columns in GRADE_COLUMNS.items()}
+# Every ``rankings_prospects`` column loaded from a file, in INSERT order.
 TABLE_COLUMNS = [
     "rank", "change", "org_rank", "player_id", "fangraphs_id", "name", "team", "pos", "sec_pos",
     "player_type", "level", "eta", "age", "fv",
     *SPECIFIC["batting"], *SPECIFIC["pitching"],
 ]
+# DDL for ``rankings_prospects``; the grade columns are text because scouting values look
+# like "70 / 70" or "92-95".
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rankings_prospects (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -122,7 +130,17 @@ CREATE TABLE IF NOT EXISTS rankings_prospects (
 
 
 def parse_filename(name: str) -> tuple[str, int, str]:
-    """Read (source, season, list type) from ``<source>-<year>-<type>.csv``."""
+    """Read (source, season, list type) from ``<source>-<year>-<type>.csv``.
+
+    Args:
+        name: File name (not a path).
+
+    Returns:
+        ``(source, season, list type)``, both text parts lower-cased.
+
+    Raises:
+        ValueError: If the name does not match the pattern.
+    """
     match = FILE_PATTERN.match(name)
     if not match:
         raise ValueError(f"{name}: expected <source>-<year>-<type>.csv")
@@ -131,7 +149,15 @@ def parse_filename(name: str) -> tuple[str, int, str]:
 
 
 def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Expand folders into their prospect files; returns (prospect files, skipped files)."""
+    """Expand folders into their prospect files.
+
+    Args:
+        paths: Files and/or folders. Explicit files are taken as given; in folders only
+            names matching ``FILE_PATTERN`` are used.
+
+    Returns:
+        ``(prospect files, skipped files)``.
+    """
     files, skipped = [], []
     for path in paths:
         if path.is_dir():
@@ -143,11 +169,29 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 
 
 def _text(series: pd.Series) -> pd.Series:
+    """Strip whitespace and turn blanks and ``-`` placeholders into missing values."""
     cleaned = series.astype("string").str.strip()
     return cleaned.mask(cleaned.isin(["", "-"]))
 
 
 def load_prospects(path: Path, index: PlayerIndex) -> pd.DataFrame:
+    """Read a prospect export into table-shaped rows.
+
+    Headers are matched case-insensitively against ``SHARED_COLUMNS`` plus the list
+    type's grade columns; the first header mapping to a column wins, the rest are ignored.
+    In batting/pitching files a row is kept only if it has a grade for that type; in
+    other lists the player type comes from the position.
+
+    Args:
+        path: Prospect CSV named ``<source>-<year>-<type>.csv``.
+        index: Player lookup used to resolve ``player_id``.
+
+    Returns:
+        A DataFrame with the ``TABLE_COLUMNS`` columns and None for missing values.
+
+    Raises:
+        ValueError: If the file name is malformed or there is no player name column.
+    """
     _, _, list_type = parse_filename(path.name)
     df = pd.read_csv(path, encoding="utf-8-sig", dtype=str)
     df.columns = [str(column).strip() for column in df.columns]
@@ -183,7 +227,17 @@ def load_prospects(path: Path, index: PlayerIndex) -> pd.DataFrame:
 
 
 def import_prospects(path: Path, conn: db.Connection, snapshot: str, index: PlayerIndex) -> tuple[str, int, str, int]:
-    """Insert one file as a new snapshot; returns (source, season, list type, rows)."""
+    """Insert one file as a new snapshot, warning on stderr about unmatched players.
+
+    Args:
+        path: Prospect CSV.
+        conn: Open database connection.
+        snapshot: Timestamp shared by every file of one run.
+        index: Player lookup used to resolve ids.
+
+    Returns:
+        ``(source, season, list type, rows inserted)``.
+    """
     source, season, list_type = parse_filename(path.name)
     df = load_prospects(path, index)
     unmatched = df.loc[df["player_id"].isna(), "name"]
@@ -201,6 +255,14 @@ def import_prospects(path: Path, conn: db.Connection, snapshot: str, index: Play
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments (default ``sys.argv[1:]``).
+
+    Returns:
+        Exit status: 0 on success, 1 if no files were found or an import failed.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"prospect files or folders (default: {DEFAULT_DIR})")
     args = parser.parse_args(argv)

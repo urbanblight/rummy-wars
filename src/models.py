@@ -44,9 +44,11 @@ class Player:
         """Z-score, SGP and above-replacement data in league category order, for the results-page modal."""
 
         def repl(values: dict, key: str) -> tuple[float | None, int | None]:
+            """The (value, rank) above replacement for ``key``, or blanks when absent."""
             return values.get(key) or (None, None)
 
         def entry(key: str, z, z_rank, sgp, sgp_rank) -> dict:
+            """Build one row of the modal payload for ``key`` (``total`` or a category)."""
             z_repl, z_repl_rank = repl(self.z_above_replacement, key)
             sgp_repl, sgp_repl_rank = repl(self.sgp_above_replacement, key)
             return {
@@ -74,6 +76,7 @@ class PlayerNotice(str):
     player: str
 
     def __new__(cls, message: str, player: str) -> PlayerNotice:
+        """Create the notice text and attach the player it concerns."""
         notice = super().__new__(cls, message)
         notice.player = player
         return notice
@@ -90,11 +93,13 @@ class RummyWarsBaseError(Exception):
     default_message: str = "An unexpected application error occurred."
 
     def __init__(self, message: str | None = None, code: str | None = None):
+        """Store the message (or the class default) and an optional error code."""
         self.message = message or self.default_message
         self.code = code
         super().__init__(self.message)
 
     def __str__(self) -> str:
+        """The message, prefixed with ``[code]`` when a code was given."""
         if self.code:
             return f"[{self.code}] {self.message}"
         return self.message

@@ -15,8 +15,9 @@ projections are never overwritten and the history of a system's revisions is kep
 the latest with ``snapshot = (SELECT MAX(snapshot) ... WHERE `system` = %s AND season = %s)``.
 After importing, z-scores, SGP and above-replacement values are calculated for every
 system's latest projections (see ``projections.save_projection_scores``) and shown when the
-projection is selected on a team page. Columns the export lacks are stored as NULL; columns the tables do not list are ignored.
-Counting stats are stored as DOUBLE because Steamer projects fractional totals (e.g. 145.09 games).
+projection is selected on a team page. Columns the export lacks are stored as NULL; columns
+the tables do not list are ignored. Counting stats are stored as DOUBLE because Steamer
+projects fractional totals (e.g. 145.09 games).
 """
 
 from __future__ import annotations
@@ -37,7 +38,9 @@ import projections  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(REPO_ROOT / ".env", override=False)
+# Default folder scanned when no PATH is given.
 DEFAULT_DIR = REPO_ROOT / "data" / "projections"
+# ``<system>-<season>-<batting|pitching>.csv``; the separator before the type may be ``-`` or ``.``.
 FILE_PATTERN = re.compile(r"^(.+)-(\d{4})[-.](batting|pitching)\.csv$", re.IGNORECASE)
 
 # Export column -> table column, per player type.
@@ -54,10 +57,20 @@ PITCHING_COLUMNS = {
     "WHIP": "whip", "K/9": "k9", "BB/9": "bb9", "HR/9": "hr9", "K%": "k_pct", "BB%": "bb_pct",
     "AVG": "avg", "BABIP": "babip", "LOB%": "lob_pct", "FIP": "fip", "WAR": "war", "ADP": "adp",
 }
+# Player type -> its column map.
 KINDS = {"batting": BATTING_COLUMNS, "pitching": PITCHING_COLUMNS}
 
 
 def _schema(kind: str) -> str:
+    """Build the CREATE TABLE statement for ``<kind>_projections`` from its column map.
+
+    Args:
+        kind: ``"batting"`` or ``"pitching"``.
+
+    Returns:
+        DDL with one DOUBLE column per distinct mapped stat. The unique key falls back to
+        the name (via IFNULL) when a row has no FanGraphs id.
+    """
     columns = ",\n    ".join(
         f"{column} DOUBLE"
         for column in dict.fromkeys(KINDS[kind].values())
@@ -80,11 +93,19 @@ CREATE TABLE IF NOT EXISTS {kind}_projections (
 """
 
 
+# DDL for both projection tables.
 SCHEMA = _schema("batting") + _schema("pitching")
 
 
 def widen_count_columns(conn: db.Connection) -> None:
-    """Steamer projects fractional counting stats; convert INT columns from earlier imports to DOUBLE."""
+    """Convert INT stat columns left by earlier imports to DOUBLE.
+
+    Steamer projects fractional counting stats (e.g. 145.09 games), which INT columns
+    would round.
+
+    Args:
+        conn: Open database connection.
+    """
     for kind, columns in KINDS.items():
         table = f"{kind}_projections"
         rows = conn.execute(
@@ -100,7 +121,17 @@ def widen_count_columns(conn: db.Connection) -> None:
 
 
 def parse_filename(name: str) -> tuple[str, int, str]:
-    """Read (system, season, kind) from ``<system>-<season>-<batting|pitching>.csv``."""
+    """Read (system, season, kind) from ``<system>-<season>-<batting|pitching>.csv``.
+
+    Args:
+        name: File name (not a path).
+
+    Returns:
+        ``(system, season, kind)`` with ``kind`` lower-cased.
+
+    Raises:
+        ValueError: If the name does not match the pattern.
+    """
     match = FILE_PATTERN.match(name)
     if not match:
         raise ValueError(f"{name}: expected <system>-<season>-batting.csv or <system>-<season>-pitching.csv")
@@ -109,7 +140,15 @@ def parse_filename(name: str) -> tuple[str, int, str]:
 
 
 def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Expand folders into their CSV files; returns (projection files, skipped files)."""
+    """Expand folders into their projection files.
+
+    Args:
+        paths: Files and/or folders. Explicit files are taken as given; in folders only
+            names matching ``FILE_PATTERN`` are used.
+
+    Returns:
+        ``(projection files, skipped files)``.
+    """
     files, skipped = [], []
     for path in paths:
         if path.is_dir():
@@ -121,7 +160,18 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 
 
 def load_player_ids(conn: db.Connection) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """FanGraphs id -> player ids and MLB id -> player ids from the players table."""
+    """Index the players table by FanGraphs id and by MLB id.
+
+    Args:
+        conn: Open database connection.
+
+    Returns:
+        ``(by_fangraphs, by_mlb)``, each mapping an external id to the list of canonical
+        player ids using it (two-way players share one external id).
+
+    Raises:
+        RuntimeError: If the players table does not exist.
+    """
     try:
         rows = conn.execute("SELECT player_id, fangraphs_id, mlb_id FROM players").fetchall()
     except db.SchemaError as error:
@@ -137,7 +187,18 @@ def load_player_ids(conn: db.Connection) -> tuple[dict[str, list[str]], dict[str
 
 
 def pick(candidates: list[str] | None, kind: str) -> str | None:
-    """One id from the candidates; two-way players have a hitter id and a pitcher id ending in ``p``."""
+    """Choose one player id from the candidates.
+
+    Two-way players have a hitter id and a pitcher id ending in ``p``; the file's kind
+    selects between them.
+
+    Args:
+        candidates: Player ids sharing an external id, or None.
+        kind: ``"batting"`` or ``"pitching"``.
+
+    Returns:
+        The id, or None if there is none or it is still ambiguous.
+    """
     if not candidates:
         return None
     if len(candidates) > 1:
@@ -147,6 +208,7 @@ def pick(candidates: list[str] | None, kind: str) -> str | None:
 
 
 def _id_text(value) -> str | None:
+    """Normalise an id cell: NaN/blank to None, and drop the ``.0`` pandas adds to floats."""
     if pd.isna(value):
         return None
     text = str(value).strip()
@@ -154,6 +216,21 @@ def _id_text(value) -> str | None:
 
 
 def load_projections(path: Path, kind: str, ids: tuple[dict, dict]) -> pd.DataFrame:
+    """Read a projection export into table-shaped rows.
+
+    Args:
+        path: Projection CSV.
+        kind: ``"batting"`` or ``"pitching"``; selects the column map.
+        ids: ``(by_fangraphs, by_mlb)`` from ``load_player_ids``.
+
+    Returns:
+        A DataFrame of the ``<kind>_projections`` columns (after system/season/snapshot),
+        with missing values as None and duplicates by (FanGraphs id, name) removed.
+
+    Raises:
+        ValueError: If there is no ``Name`` column or the file lacks the columns that
+            identify the kind (guards against a batting file named as pitching).
+    """
     df = pd.read_csv(path, encoding="utf-8-sig", dtype={"PlayerId": str, "MLBAMID": str})
     if "Name" not in df.columns:
         raise ValueError(f"{path.name}: no Name column")
@@ -179,7 +256,17 @@ def load_projections(path: Path, kind: str, ids: tuple[dict, dict]) -> pd.DataFr
 
 
 def import_projections(path: Path, conn: db.Connection, snapshot: str, ids=None) -> tuple[str, int, str, int]:
-    """Insert one file as a new snapshot; returns (system, season, kind, rows)."""
+    """Insert one file as a new snapshot, warning on stderr about unmatched players.
+
+    Args:
+        path: Projection CSV named ``<system>-<season>-<kind>.csv``.
+        conn: Open database connection.
+        snapshot: Timestamp shared by every file of one run.
+        ids: Optional preloaded ``load_player_ids`` result.
+
+    Returns:
+        ``(system, season, kind, rows inserted)``.
+    """
     system, season, kind = parse_filename(path.name)
     ids = ids or load_player_ids(conn)
     df = load_projections(path, kind, ids)
@@ -197,6 +284,15 @@ def import_projections(path: Path, conn: db.Connection, snapshot: str, ids=None)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments (default ``sys.argv[1:]``).
+
+    Returns:
+        Exit status: 0 on success, 1 if no files were found or an import failed. A
+        failure to calculate projection scores afterwards is only a warning.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"projection files or folders (default: {DEFAULT_DIR})")
     args = parser.parse_args(argv)

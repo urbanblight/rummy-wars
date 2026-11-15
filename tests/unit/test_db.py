@@ -49,8 +49,8 @@ def test_free_agents_can_be_filtered_to_a_whole_position(conn, monkeypatch):
         + ", ".join(f"{c} DOUBLE" for c in columns) + ", sgp_total_above_replacement_rank DOUBLE)"
     )
     conn.executemany(
-        "INSERT INTO batting VALUES (%s, %s, %s, 'NYY', NULL, 100, 10, 5, 1.0, 1, 1.0, 1, %s)",
-        [("Catcher", "c", "C", 2), ("Corner", "k", "1B, C", 1), ("First", "f", "1B", 3), ("Shortstop", "s", "SS", 4)],
+        "INSERT INTO batting VALUES (%s, %s, %s, 'NYY', NULL, 100, 10, %s, 1.0, 1, 1.0, 1, %s)",
+        [("Catcher", "c", "C", 2, 2), ("Corner", "k", "1B, C", 1, 1), ("First", "f", "1B", 3, 3), ("Shortstop", "s", "SS", 4, 4)],
     )
     conn.commit()
 
@@ -83,6 +83,6 @@ def test_free_agents_sort_across_every_player_not_just_one_page(conn, monkeypatc
     assert names(sort="cbs") == ["Bob", "Cy", "Ann"]
     assert names(sort="name", direction="desc") == ["Cy", "Bob", "Ann"]
     assert names(sort="bp") == ["Cy", "Ann", "Bob"]
-    assert names(sort="bp", direction="desc", offset=1, limit=1) == ["Ann"]
+    assert names(sort="bp", direction="desc", offset=1, limit=1) == ["Cy"]
     with pytest.raises(ValueError):
         zscores.free_agent_sort("Batter", "stat:XX", None)

@@ -87,3 +87,40 @@ def test_resolve_two_way_players_and_team_aliases_and_nicknames():
     assert make_index(
         ("x1", "Same Name", "Same Name", "WSN", "P"), ("x2", "Same Name", "Same Name", "SD", "P")
     ).resolve("Same Name", "WAS") == "x1"
+
+
+def test_load_players_downloads_urls_and_fills_missing_columns(monkeypatch):
+    calls = []
+
+    class Response:
+        text = "IDPLAYER,PLAYERNAME,FANGRAPHSID\nabc01,A Player,77\n,Nameless,1\n"
+
+        def raise_for_status(self):
+            calls.append("checked")
+
+    def fake_get(url, headers, timeout):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(import_players.requests, "get", fake_get)
+
+    df = import_players.load_players("https://example.test/map.csv")
+
+    assert calls == ["https://example.test/map.csv", "checked"]
+    assert df["player_id"].tolist() == ["abc01"]
+    assert df["fangraphs_id"].tolist() == ["77"]
+    assert df["cbs_name"].tolist() == [None]  # absent from the export
+    assert df["active"].tolist() == [0]
+
+
+def test_main_imports_and_reports_errors(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(import_players, "import_players", lambda source: 3)
+    assert import_players.main(["--source", "x.csv"]) == 0
+    assert "Imported 3 players" in capsys.readouterr().out
+
+    def boom(source):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(import_players, "import_players", boom)
+    assert import_players.main([]) == 1
+    assert "Error: disk on fire" in capsys.readouterr().err

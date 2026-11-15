@@ -116,10 +116,38 @@
 
 {% macro advanced_modal_script() %}
 <script>
+  /**
+   * Advanced stats modal: on click of an .adv-icon button, parses its data-advanced JSON
+   * (z-score and SGP values with ranks, overall and per category) and renders them into the
+   * dialog. Also handles the info popover toggle and closing the dialog.
+   * Uses one delegated document listener so rows added later (infinite scroll) work.
+   */
   (function () {
     var modal = document.getElementById('adv-modal');
+    /**
+     * Formats a signed number with two decimals, using a real minus sign for display.
+     *
+     * @param {number} v - Value to format.
+     * @returns {string} Text such as '+1.25' or '−' followed by the magnitude.
+     */
     function fmt(v) { return (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(2); }
+    /**
+     * Picks a color class so only notable values (beyond one unit) are highlighted.
+     *
+     * @param {number} v - Value being displayed.
+     * @returns {string} 'pos', 'neg', or '' for unremarkable values.
+     */
     function cls(v) { return v > 1 ? 'pos' : (v < -1 ? 'neg' : ''); }
+    /**
+     * Appends one value/rank box to a container. A null value renders a dash with no rank,
+     * since players can lack data for a given measure.
+     *
+     * @param {Element} parent - Container to append to.
+     * @param {?number} value - Metric value, or null/undefined if unavailable.
+     * @param {number} rank - Rank among all players for this metric.
+     * @param {boolean} divider - Whether to draw a divider before this box.
+     * @returns {void}
+     */
     function metric(parent, value, rank, divider) {
       var box = document.createElement('div');
       box.className = divider ? 'adv-metric adv-metric-divider' : 'adv-metric';
@@ -135,15 +163,25 @@
       box.append(valueEl, rankEl);
       parent.append(box);
     }
+    /**
+     * Fills a container with the four metrics in a fixed order: z, SGP, z above replacement,
+     * SGP above replacement.
+     *
+     * @param {Element} el - Container to fill.
+     * @param {Object} row - Metric values and ranks (z, z_rank, sgp, sgp_rank, z_repl, sgp_repl, ...).
+     * @returns {void}
+     */
     function fill(el, row) {
       metric(el, row.z, row.z_rank, false);
       metric(el, row.sgp, row.sgp_rank, false);
       metric(el, row.z_repl, row.z_repl_rank, true);
       metric(el, row.sgp_repl, row.sgp_repl_rank, false);
     }
+    // Delegated click handler: open the modal, toggle the info popover, or close the dialog.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.adv-icon');
       if (btn) {
+        // Payload is embedded by the server in the button's data attribute.
         var data = JSON.parse(btn.dataset.advanced);
         document.getElementById('adv-modal-title').textContent = btn.dataset.name;
         var totalEl = document.getElementById('adv-modal-total');
@@ -162,6 +200,7 @@
           cell.append(label, metrics);
           cells.append(cell);
         });
+        // Reset the info popover so it starts collapsed each time the modal opens.
         document.querySelector('.adv-info').classList.remove('open');
         modal.showModal();
       } else if (e.target.closest('.adv-info-icon')) {
@@ -171,16 +210,38 @@
       }
     });
   })();
+  /**
+   * Player detail modal: on click of a .player-open button, parses its data-player JSON and
+   * builds the dialog body (rankings, action buttons, scouting report, profile links).
+   * Rankings and actions are only shown to admins.
+   */
   (function () {
     var modal = document.getElementById('player-modal');
     var body = document.getElementById('player-modal-body');
     var isAdmin = document.body.hasAttribute('data-admin');
+    /**
+     * Creates an element with optional class and text. Text is set via textContent so
+     * server-supplied strings are never interpreted as HTML.
+     *
+     * @param {string} tag - Element tag name.
+     * @param {string} [cls] - CSS class name(s).
+     * @param {string} [text] - Text content.
+     * @returns {HTMLElement} The new element.
+     */
     function el(tag, cls, text) {
       var node = document.createElement(tag);
       if (cls) { node.className = cls; }
       if (text !== undefined) { node.textContent = text; }
       return node;
     }
+    /**
+     * Builds a labeled stat box, with an optional signed change indicator.
+     *
+     * @param {string} label - Caption shown under the value.
+     * @param {string} value - Main displayed value.
+     * @param {?number} [change] - Rank movement; positive is shown as gain, negative as loss.
+     * @returns {HTMLElement} The stat box.
+     */
     function stat(label, value, change) {
       var box = el('div', 'adv-metric');
       box.append(el('strong', '', value), el('small', '', label));
@@ -189,6 +250,16 @@
       }
       return box;
     }
+    /**
+     * Builds an action button that carries its payload in data attributes, so the existing
+     * delegated click handlers (advanced stats, prospects, news) pick it up.
+     *
+     * @param {string} cls - Class that routes the click to the right handler.
+     * @param {string} label - Button text.
+     * @param {string} name - Player name, stored in data-name.
+     * @param {Object<string, string>} data - Extra data-* attributes to set.
+     * @returns {HTMLButtonElement} The button.
+     */
     function action(cls, label, name, data) {
       var button = el('button', cls + ' player-action', label);
       button.type = 'button';
@@ -196,6 +267,12 @@
       Object.keys(data).forEach(function (key) { button.dataset[key] = data[key]; });
       return button;
     }
+    /**
+     * Renders a player's details into the modal, replacing any previous content.
+     *
+     * @param {Object} d - Player payload (name, team, positions, status, slot, bp, report, links, ...).
+     * @returns {void}
+     */
     function render(d) {
       document.getElementById('player-modal-title').textContent = d.name;
       document.getElementById('player-modal-meta').textContent = [
@@ -205,7 +282,9 @@
 
       var ranks = el('div', 'prospect-list');
       var metrics = el('div', 'prospect-metrics');
+      // bp is a [rank, change] pair; show a dash when the player is unranked.
       metrics.append(stat('BP DYNASTY', d.bp ? '#' + d.bp[0] : '\u2014', d.bp ? d.bp[1] : null));
+      // cbs_rank is only present on some pages, so check the key exists first.
       if ('cbs_rank' in d) { metrics.append(stat('CBS RANK', d.cbs_rank === null ? '\u2014' : '#' + d.cbs_rank)); }
       if (d.age != null) { metrics.append(stat('AGE', d.age.toFixed(1))); }
       ranks.append(metrics);
@@ -228,6 +307,7 @@
         body.append(grid);
       }
 
+      // CBS link comes from its own field, so prepend it to the generic profile links.
       var links = (d.cbs_url ? [['CBS', d.cbs_url]] : []).concat(d.links);
       if (links.length) {
         body.append(el('p', 'player-section', 'Profiles'));
@@ -242,6 +322,7 @@
         body.append(row);
       }
     }
+    // Delegated click handler: open the modal for a player, or close it.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.player-open');
       if (btn) {
@@ -252,8 +333,20 @@
       }
     });
   })();
+  /**
+   * Prospect rankings modal: on click of a .prospect-icon button, parses its data-prospects
+   * JSON and lists the player's rank on each prospect list with org rank, FV, level and ETA.
+   */
   (function () {
     var modal = document.getElementById('prospect-modal');
+    /**
+     * Builds a labeled stat box, with an optional signed change indicator.
+     *
+     * @param {string} label - Caption shown under the value.
+     * @param {string} value - Main displayed value.
+     * @param {?number} [change] - Rank movement; positive is shown as gain, negative as loss.
+     * @returns {HTMLElement} The stat box.
+     */
     function stat(label, value, change) {
       var box = document.createElement('div');
       box.className = 'adv-metric';
@@ -270,6 +363,7 @@
       }
       return box;
     }
+    // Delegated click handler: open the modal for a prospect, or close it.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.prospect-icon');
       if (btn) {
@@ -292,6 +386,7 @@
           lists.append(row);
         });
         modal.showModal();
+      // The modal check avoids matching .adv-close buttons that belong to other dialogs.
       } else if (e.target === modal || (modal.open && e.target.closest('#prospect-modal .adv-close'))) {
         modal.close();
       }
@@ -317,12 +412,26 @@
 
 {% macro news_modal_script() %}
 <script>
+  /**
+   * News modal and badge scanner: loads recent headlines for a player on demand when a
+   * .news-icon is clicked, and in the background flags icons whose player has news from
+   * today or yesterday. Responses are cached per player name.
+   */
   (function () {
     var modal = document.getElementById('news-modal');
     var list = document.getElementById('news-modal-list');
+    // Token for the latest click; stale responses from earlier clicks are discarded.
     var latest = 0;
     var newsUrl = '{{ url_for("player_news") }}';
+    // Maps player name to the in-flight or settled fetch promise.
     var cache = {};
+    /**
+     * Fetches news for a player, caching the promise so concurrent callers share one request.
+     * A failed request is evicted from the cache so it can be retried later.
+     *
+     * @param {string} name - Player name.
+     * @returns {Promise<Array<Object>>} Resolves to news items (title, link, source, published).
+     */
     function loadNews(name) {
       if (!cache[name]) {
         cache[name] = fetch(newsUrl + '?name=' + encodeURIComponent(name))
@@ -331,12 +440,25 @@
       }
       return cache[name];
     }
+    /**
+     * Replaces the modal list with a single status paragraph.
+     *
+     * @param {string} text - Message to display.
+     * @returns {void}
+     */
     function message(text) {
       var p = document.createElement('p');
       p.textContent = text;
       list.textContent = '';
       list.append(p);
     }
+    /**
+     * Checks whether a date falls on today or yesterday (local time), comparing by calendar day
+     * rather than elapsed hours.
+     *
+     * @param {string} dateString - Any string parseable by Date.
+     * @returns {boolean} True if recent; false if unparseable or older.
+     */
     function isRecentDate(dateString) {
       try {
         var itemDate = new Date(dateString);
@@ -353,9 +475,11 @@
         return false;
       }
     }
+    // Delegated click handler: open news for a player, or close the dialog.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.news-icon');
       if (btn) {
+        // Bump the token so any earlier in-flight request is ignored when it resolves.
         var request = ++latest;
         document.getElementById('news-modal-title').textContent = btn.dataset.name;
         message('Loading\u2026');
@@ -387,8 +511,15 @@
         modal.close();
       }
     });
+    // Background badge scan: a small worker pool checks each icon's news without flooding the server.
     var queue = [];
     var running = 0;
+    /**
+     * Worker step: takes the next icon from the queue, loads its news, updates every icon for
+     * the same player, then recurses. A failure is swallowed so one player can't stall the queue.
+     *
+     * @returns {void}
+     */
     function flagNext() {
       var btn = queue.shift();
       if (!btn) { running--; return; }
@@ -404,6 +535,12 @@
         .catch(function () {})
         .then(flagNext);
     }
+    /**
+     * Queues any icons not yet checked and starts workers up to the concurrency limit of 4.
+     * Safe to call repeatedly; the data-news-checked flag prevents duplicates.
+     *
+     * @returns {void}
+     */
     function scan() {
       document.querySelectorAll('.news-icon:not([data-news-checked])').forEach(function (icon) {
         icon.dataset.newsChecked = '1';
@@ -412,6 +549,7 @@
       while (running < 4 && queue.length > running) { running++; flagNext(); }
     }
     scan();
+    // Rescan when rows are added to the page (for example by infinite scroll).
     new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
   })();
 </script>
@@ -434,8 +572,13 @@
 
 {% macro notice_modal_script() %}
 <script>
+  /**
+   * Notifications modal: on click of a .note-icon button, parses its data-notices JSON and
+   * lists each notice, using its kind as the paragraph class for styling.
+   */
   (function () {
     var modal = document.getElementById('note-modal');
+    // Delegated click handler: open the modal with the player's notices, or close it.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.note-icon');
       if (btn) {

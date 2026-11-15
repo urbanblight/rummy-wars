@@ -71,6 +71,17 @@ def import_lineup_files(data_dir: Path) -> int:
 
 
 def refresh(year: str, data_dir: Path) -> None:
+    """Run every import step in dependency order, printing progress.
+
+    Args:
+        year: Season of the player stats to import.
+        data_dir: Directory holding the input files (see the module docstring).
+
+    Raises:
+        FileNotFoundError: If a required input file is missing.
+        ValueError: If a standings file is invalid.
+        RuntimeError: If a step's prerequisite data is missing.
+    """
     count = import_teams.import_teams(data_dir / "teams.csv")
     print(f"Teams: imported {count} teams")
 
@@ -90,6 +101,14 @@ def refresh(year: str, data_dir: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments to parse instead of ``sys.argv[1:]`` (for tests).
+
+    Returns:
+        Process exit status: 0 on success, 1 if any step fails.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--year", default="2026", help="season of the player stats to import")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")

@@ -1,3 +1,11 @@
+"""Flask web application for Rummy Wars.
+
+Routes cover the league (teams, team pages, free agents, prospects), roster
+evaluation (uploaded CBS CSV or a team's imported lineup), lineup uploads and a
+Google News proxy. Template filters and globals used by the Jinja templates are
+registered here too. Write access is restricted by ``auth.init_app``.
+"""
+
 from __future__ import annotations
 
 import datetime
@@ -124,6 +132,7 @@ LOGGER = logging.getLogger(__name__)
 
 @app.context_processor
 def inject_current_year():
+    """Expose the current UTC year to every template (used in the footer)."""
     return {"current_year": datetime.datetime.now(tz=datetime.timezone.utc).date().year}
 
 
@@ -188,6 +197,11 @@ def fetch_player_news(name: str) -> list[dict]:
 
 @app.get("/news")
 def player_news():
+    """Return recent news for the ``name`` query argument as JSON.
+
+    Aborts with 400 for a blank or over-long name. A failed or malformed upstream
+    response becomes a 502 JSON error so the page can show a message instead of breaking.
+    """
     name = request.args.get("name", "").strip()
     if not name or len(name) > 100:
         abort(400)
@@ -200,12 +214,14 @@ def player_news():
 
 @app.get("/")
 def index():
+    """Render the home page with the roster upload form."""
     offseason = MODE == "offseason"
     return render_template("index.html", offseason=offseason)
 
 
 @app.get("/teams")
 def teams():
+    """Render the league table, ordered by the latest standings, with projection systems for SGP columns."""
     snapshot, league_teams = league.league_teams()
     return render_template(
         "teams.html", snapshot=snapshot, teams=league_teams, systems=projections.systems(),
@@ -214,6 +230,13 @@ def teams():
 
 @app.get("/teams/<int:team_id>")
 def team(team_id: int):
+    """Render one team's roster page, aborting with 404 for an unknown team.
+
+    Only the admin may overlay a projection system's stats (``?stats=<system key>``).
+
+    Args:
+        team_id: The team's id.
+    """
     found = league.get_team(team_id)
     if found is None:
         abort(404)
@@ -242,6 +265,18 @@ FREE_AGENT_POSITIONS = {
 
 
 def _free_agent_page(kind: str, offset: int, position: str, sort: str = "", direction: str = ""):
+    """Load one page of free agents after validating the request, aborting with 404 if it is invalid.
+
+    Args:
+        kind: ``batters`` or ``pitchers``.
+        offset: Rows to skip; must not be negative.
+        position: Position filter, or empty for all positions.
+        sort: Requested sort key (invalid values fall back via ``zscores.free_agent_sort``).
+        direction: ``asc`` or ``desc``.
+
+    Returns:
+        ``(players, has_more, sort_key, descending)``.
+    """
     player_type = FREE_AGENT_TYPES.get(kind)
     if player_type is None or offset < 0 or (position and position not in FREE_AGENT_POSITIONS[kind]):
         abort(404)
@@ -258,6 +293,7 @@ def _free_agent_page(kind: str, offset: int, position: str, sort: str = "", dire
 
 @app.get("/free-agents")
 def free_agents():
+    """Render the first page of the free-agent list for the requested type, position and sort."""
     kind = request.args.get("type", "batters")
     position = request.args.get("position", "")
     players, has_more, sort, descending = _free_agent_page(
@@ -274,6 +310,10 @@ def free_agents():
 
 @app.get("/free-agents/rows")
 def free_agent_rows():
+    """Return further free-agent table rows as an HTML fragment for infinite scroll.
+
+    The ``X-Has-More`` header tells the client whether another page follows.
+    """
     kind = request.args.get("type", "batters")
     offset = request.args.get("offset", 0, type=int)
     players, has_more, _sort, _descending = _free_agent_page(
@@ -285,6 +325,7 @@ def free_agent_rows():
 
 @app.get("/prospects")
 def prospects_page():
+    """Render the prospect rankings filtered by type, position and free-agent-only, with sorting."""
     kind = "pitchers" if request.args.get("type") == "pitchers" else "batters"
     sort = request.args.get("sort", "")
     if sort not in prospects.SORT_KEYS:
@@ -380,6 +421,10 @@ def evaluate_team(team_id: int):
 
 @app.post("/evaluate")
 def evaluate():
+    """Evaluate an uploaded CBS roster CSV against the league rules and render the report.
+
+    Bad uploads redirect to the home page with a flashed message instead of an error page.
+    """
     upload = request.files.get("roster")
     if upload is None or not upload.filename:
         flash("Choose a CBS roster CSV to evaluate.", "error")

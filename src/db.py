@@ -24,6 +24,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 Error = exc.SQLAlchemyError
 # A missing table or column; connection failures are raised by ``connect`` instead.
 SchemaError = (exc.ProgrammingError, exc.OperationalError)
+# Length of text columns written by ``write_frame``; bounded so they can be indexed.
 TEXT_LENGTH = 255
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,14 @@ class NotConfigured(RuntimeError):
 
 
 def database_url() -> URL:
+    """The SQLAlchemy URL from ``DATABASE_URL``, defaulting to the PyMySQL driver and utf8mb4.
+
+    Returns:
+        The parsed URL.
+
+    Raises:
+        NotConfigured: If ``DATABASE_URL`` is unset or blank.
+    """
     raw = os.getenv("DATABASE_URL", "").strip()
     if not raw:
         raise NotConfigured("DATABASE_URL is not set, e.g. mysql+pymysql://user:password@host:3306/rummy_wars")
@@ -46,6 +55,7 @@ def database_url() -> URL:
 
 @lru_cache(maxsize=None)
 def _engine(url: URL):
+    """The shared engine for ``url``; cached so connections are pooled across requests."""
     return create_engine(url, pool_pre_ping=True, pool_recycle=1800)
 
 
@@ -55,11 +65,17 @@ class Row(tuple):
     _names: tuple[str, ...]
 
     def __new__(cls, values: Iterable, names: Iterable[str]):
+        """Create a row from ``values`` labelled with ``names`` (same order)."""
         row = super().__new__(cls, values)
         row._names = tuple(names)
         return row
 
     def __getitem__(self, key):
+        """Return a value by position or column name.
+
+        Raises:
+            KeyError: If ``key`` is a string that is not a column name.
+        """
         if isinstance(key, str):
             try:
                 return super().__getitem__(self._names.index(key))
@@ -68,22 +84,29 @@ class Row(tuple):
         return super().__getitem__(key)
 
     def keys(self) -> list[str]:
+        """The column names, so a row converts with ``dict(row)``."""
         return list(self._names)
 
 
 class Result:
+    """A statement result whose rows are ``Row`` objects; statements without rows yield none."""
+
     def __init__(self, result) -> None:
+        """Wrap a SQLAlchemy result, capturing its column names up front."""
         self._result = result
         self._names = tuple(result.keys()) if result.returns_rows else ()
 
     def fetchone(self) -> Row | None:
+        """The next row, or None when there are no more."""
         row = self._result.fetchone() if self._names else None
         return Row(row, self._names) if row is not None else None
 
     def fetchall(self) -> list[Row]:
+        """All remaining rows."""
         return [Row(row, self._names) for row in self._result.fetchall()] if self._names else []
 
     def __iter__(self) -> Iterator[Row]:
+        """Iterate over all remaining rows."""
         return iter(self.fetchall())
 
 
@@ -91,13 +114,16 @@ class Connection:
     """A MySQL connection; as a context manager it commits on success and always closes."""
 
     def __init__(self, sa_connection: SAConnection) -> None:
+        """Wrap an open SQLAlchemy connection."""
         self._sa = sa_connection
 
     def execute(self, sql: str, params: Iterable = ()) -> Result:
+        """Run one statement with ``%s`` placeholders bound to ``params``."""
         params = tuple(params)
         return Result(self._sa.exec_driver_sql(sql, params) if params else self._sa.exec_driver_sql(sql))
 
     def executemany(self, sql: str, rows: Iterable[Iterable]) -> None:
+        """Run ``sql`` once per row of parameters; does nothing for no rows."""
         rows = [tuple(row) for row in rows]
         if rows:
             self._sa.exec_driver_sql(sql, rows)
@@ -109,6 +135,7 @@ class Connection:
                 self._sa.exec_driver_sql(statement)
 
     def read_sql(self, sql: str, params: Iterable | None = None) -> pd.DataFrame:
+        """Run a query and return the result as a DataFrame."""
         return pd.read_sql_query(sql, self._sa, params=tuple(params) if params else None)
 
     def write_frame(self, df: pd.DataFrame, table: str) -> None:
@@ -121,18 +148,23 @@ class Connection:
         df.to_sql(table, self._sa, if_exists="replace", index=False, dtype=text_columns)
 
     def commit(self) -> None:
+        """Commit the current transaction."""
         self._sa.commit()
 
     def rollback(self) -> None:
+        """Roll back the current transaction."""
         self._sa.rollback()
 
     def close(self) -> None:
+        """Return the connection to the pool."""
         self._sa.close()
 
     def __enter__(self) -> Connection:
+        """Enter the ``with`` block, returning this connection."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Roll back on an exception, otherwise commit; always close."""
         try:
             self.rollback() if exc_type else self.commit()
         finally:
@@ -154,6 +186,7 @@ def connect_or_none() -> Connection | None:
 
 
 def table_exists(conn: Connection, table: str) -> bool:
+    """True if ``table`` exists in the connected schema."""
     return conn.execute(
         "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s", (table,)
     ).fetchone() is not None

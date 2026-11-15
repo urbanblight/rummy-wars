@@ -81,6 +81,9 @@
 {{ advanced_modal_script() }}
 {{ news_modal_script() }}
 <script>
+  /**
+   * Prospects page: submits the filter forms as soon as a position or free-agent filter changes.
+   */
   (function () {
     var filter = document.getElementById('position-filter');
     filter.addEventListener('change', function () { filter.form.submit(); });

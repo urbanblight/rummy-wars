@@ -37,6 +37,7 @@
           </label>
           <input id="lineup-file" name="lineup" type="file" accept=".csv,text/csv" required>
           <script>
+            // Show the chosen lineup file name, or the default hint if the selection was cleared.
             document.querySelector('#lineup-file').addEventListener('change', (event) => {
               const file = event.target.files[0];
               document.querySelector('#lineup-file-name').textContent = file ? file.name : 'CBS roster overview export';
@@ -121,12 +122,20 @@
 {{ advanced_modal_script() }}
 {{ news_modal_script() }}
 <script>
+  /**
+   * Team page: submits the stats source form as soon as a source is selected,
+   * so the page needs no explicit submit button.
+   */
   document.querySelectorAll('select.stats-source').forEach(function (select) {
     select.addEventListener('change', function () { select.form.submit(); });
   });
 </script>
 {% if lineup %}
 <script>
+  /**
+   * Team page: on evaluate, shows the loading screen and disables the button to prevent
+   * duplicate submissions while the lineup is evaluated.
+   */
   document.querySelector('#evaluate-form').addEventListener('submit', function (event) {
     document.querySelector('#loading-screen').hidden = false;
     event.target.querySelector('button').disabled = true;

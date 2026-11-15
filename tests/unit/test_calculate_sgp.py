@@ -42,3 +42,25 @@ def test_calculate_uses_only_full_year_snapshots(conn):
 
     assert (category, kind, first, last) == ("HR", "batting", 2025, 2026)
     assert factor == pytest.approx(0.5 * 20 + 0.5 * 10)
+
+
+def test_calculate_requires_full_year_standings(conn):
+    conn.execute(
+        "CREATE TABLE standings_categories (season_year INT, as_of_date VARCHAR(10), team_id INT,"
+        " category VARCHAR(64), category_type VARCHAR(16), value DOUBLE, points DOUBLE, points_change DOUBLE)"
+    )
+    with pytest.raises(ValueError, match="import_standings"):
+        calculate_sgp.calculate(conn, 0.5)
+
+
+def test_main_reports_success_and_failure(monkeypatch, capsys):
+    monkeypatch.setattr(calculate_sgp, "save_factors", lambda weight: 3)
+    assert calculate_sgp.main(["--latest-weight", "0.7"]) == 0
+    assert "Saved SGP factors for 3 categories" in capsys.readouterr().out
+
+    def fail(weight):
+        raise ValueError("no standings")
+
+    monkeypatch.setattr(calculate_sgp, "save_factors", fail)
+    assert calculate_sgp.main([]) == 1
+    assert "Error: no standings" in capsys.readouterr().err

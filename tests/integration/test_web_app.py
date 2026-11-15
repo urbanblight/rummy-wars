@@ -129,6 +129,7 @@ class WebAppIntegrationTests(unittest.TestCase):
         self.assertEqual(rows.headers["X-Has-More"], "0")
         load.assert_called_with("Batter", 50, FREE_AGENT_PAGE_SIZE + 1, position=None, sort="cbs", direction="asc")
 
+    @patch.dict("os.environ", {"BATTING_SCORING_CATEGORIES": "HR"})
     @patch("zscores.load_free_agents")
     def test_free_agents_sort_is_passed_through_and_headers_link(self, load):
         load.return_value = []

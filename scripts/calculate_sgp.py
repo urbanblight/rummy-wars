@@ -28,6 +28,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import db  # noqa: E402
 
+# DDL for the factors table. ``calculated_at`` is an ISO-8601 UTC string so the
+# web app can show how fresh the factors are without a driver-specific type.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sgp_factors (
     category VARCHAR(64) PRIMARY KEY,
@@ -42,12 +44,38 @@ CREATE TABLE IF NOT EXISTS sgp_factors (
 
 
 def season_slope(values: list[float], points: list[float]) -> float:
-    """Stat gained per standings point (always positive, even for ERA/WHIP)."""
+    """Fit stat against roto points and return the stat gained per standings point.
+
+    The sign is dropped because lower-is-better categories (ERA, WHIP) slope
+    downwards while the factor is always used as a positive divisor.
+
+    Args:
+        values: Each team's stat total for one category and season.
+        points: The roto points those teams earned for the stat, same order.
+
+    Returns:
+        The absolute slope of the least-squares line of ``values`` on ``points``.
+    """
     return abs(float(np.polyfit(points, values, 1)[0]))
 
 
 def ewma_weights(count: int, latest_weight: float) -> list[float]:
-    """Weights oldest -> newest: each season is ``1 - latest_weight`` of the next; sums to 1."""
+    """Exponentially decaying season weights, ordered oldest to newest.
+
+    Each season counts ``1 - latest_weight`` times the one after it. Because a
+    truncated geometric series sums to less than 1, the shortfall is added to
+    the oldest season so the weights always sum to exactly 1.
+
+    Args:
+        count: Number of seasons to weight (at least 1).
+        latest_weight: Weight of the newest season, in ``(0, 1]``.
+
+    Returns:
+        ``count`` weights, oldest first, summing to 1.
+
+    Raises:
+        ValueError: If ``latest_weight`` is outside ``(0, 1]``.
+    """
     if not 0 < latest_weight <= 1:
         raise ValueError("latest weight must be in (0, 1]")
     weights = [latest_weight * (1 - latest_weight) ** age for age in range(count)]
@@ -56,6 +84,24 @@ def ewma_weights(count: int, latest_weight: float) -> list[float]:
 
 
 def calculate(conn: db.Connection, latest_weight: float) -> list[tuple]:
+    """Compute the SGP factor of every category from full-year standings.
+
+    Only snapshots whose ``as_of_date`` is December 31 are used, so partial
+    in-season snapshots do not distort the slopes.
+
+    Args:
+        conn: Open database connection holding ``standings_categories``.
+        latest_weight: Weight of the newest season (see ``ewma_weights``).
+
+    Returns:
+        One ``(category, category_type, factor, first_season, last_season,
+        latest_weight, calculated_at)`` tuple per category, ready to insert
+        into ``sgp_factors``.
+
+    Raises:
+        ValueError: If there are no full-year standings, or ``latest_weight``
+            is invalid.
+    """
     rows = conn.execute(
         """
         SELECT category, category_type, season_year, value, points
@@ -86,7 +132,20 @@ def calculate(conn: db.Connection, latest_weight: float) -> list[tuple]:
 
 
 def save_factors(latest_weight: float = 0.5) -> int:
-    """Recalculate and store the factors; returns the number of categories saved."""
+    """Recalculate the factors and replace the contents of ``sgp_factors``.
+
+    The factors are calculated before the table is touched so a failure leaves
+    the previous factors in place.
+
+    Args:
+        latest_weight: Weight of the newest season (see ``ewma_weights``).
+
+    Returns:
+        The number of categories saved.
+
+    Raises:
+        ValueError: If there are no full-year standings or the weight is invalid.
+    """
     with db.connect() as conn:
         results = calculate(conn, latest_weight)
         conn.executescript(SCHEMA)
@@ -96,6 +155,14 @@ def save_factors(latest_weight: float = 0.5) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments to parse instead of ``sys.argv[1:]`` (for tests).
+
+    Returns:
+        Process exit status: 0 on success, 1 if the factors could not be saved.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--latest-weight", type=float, default=0.5,
                         help="weight of the most recent season (default: 0.5)")

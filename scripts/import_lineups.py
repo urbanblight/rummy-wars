@@ -32,7 +32,7 @@ import io
 import re
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,15 +43,21 @@ import db  # noqa: E402
 from import_cbs_stats import PLAYER_PATTERN  # noqa: E402
 from player_ids import PlayerIndex  # noqa: E402
 
+# Default folder scanned when no PATH is given on the command line.
 DEFAULT_DIR = REPO_ROOT / "data" / "lineups"
+# Full export name: team id, optional period id (in-season only), YYYYMMDD effective date.
 FILE_PATTERN = re.compile(r"^roster-overview-(\d+)(?:-(\d+))?-(\d{8})\.csv$")
+# Same without the team id, for callers (e.g. an admin upload) that already know the team.
 TEAM_FILE_PATTERN = re.compile(r"^roster-overview-(?:(\d+)-)?(\d{8})\.csv$")
 
 # Section titles in the export. Batters/Pitchers hold the active lineup; the others
 # follow and belong to the most recent of those two.
 GROUPS = {"Batters": "Batter", "Pitchers": "Pitcher"}
+# Section title -> value of the ``status`` column.
 STATUSES = {"Batters": "Active", "Pitchers": "Active", "Reserves": "Reserves", "Injured": "Injured", "Minors": "Minors"}
 
+# DDL for ``lineups``. The unique key wraps ``period_id`` in IFNULL because MySQL treats
+# NULLs as distinct, which would otherwise allow duplicate offseason rows.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lineups (
     team_id INT NOT NULL,
@@ -77,6 +83,7 @@ CREATE TABLE IF NOT EXISTS lineups (
 );
 """
 
+# Columns written per player, in INSERT order (``captured_at`` is appended at insert time).
 COLUMNS = (
     "team_id", "period_id", "effective_date", "slot_order", "player_type", "status", "slot",
     "player_id", "name", "positions", "mlb_team", "proj_rank", "actual_rank", "rostered_pct", "started_pct",
@@ -85,13 +92,31 @@ COLUMNS = (
 
 @dataclass(frozen=True)
 class LineupFile:
+    """Identity of one lineup, decoded from its file name.
+
+    Attributes:
+        team_id: Id of the owning team in the ``teams`` table.
+        period_id: Scoring period id, or None for the offseason lineup.
+        effective_date: Date the lineup applies from, ISO ``YYYY-MM-DD``.
+    """
+
     team_id: int
     period_id: int | None
     effective_date: str  # ISO YYYY-MM-DD
 
 
 def parse_filename(name: str) -> LineupFile:
-    """Read the team, optional period and effective date from a lineup file name."""
+    """Read the team, optional period and effective date from a lineup file name.
+
+    Args:
+        name: File name (not a path), e.g. ``roster-overview-7-12-20260928.csv``.
+
+    Returns:
+        The decoded ``LineupFile``.
+
+    Raises:
+        ValueError: If the name does not match the pattern or the date is not a real date.
+    """
     match = FILE_PATTERN.match(name)
     if not match:
         raise ValueError(
@@ -110,6 +135,16 @@ def parse_team_filename(name: str, team_id: int) -> LineupFile:
     """Like ``parse_filename`` for a name without the team id (the team is known from context).
 
     Accepts ``roster-overview-<date>.csv`` and ``roster-overview-<period-id>-<date>.csv``.
+
+    Args:
+        name: File name (not a path).
+        team_id: Team the lineup belongs to, supplied by the caller.
+
+    Returns:
+        The decoded ``LineupFile``.
+
+    Raises:
+        ValueError: If the name does not match or the date is not a real date.
     """
     match = TEAM_FILE_PATTERN.match(name)
     if not match:
@@ -125,6 +160,7 @@ def parse_team_filename(name: str, team_id: int) -> LineupFile:
 
 
 def _number(value: str, kind=float):
+    """Parse an export cell such as ``94%``, ``1,234`` or ``N/A``; None when it is not numeric."""
     value = value.strip().rstrip("%").replace(",", "")
     try:
         return kind(value)
@@ -133,7 +169,24 @@ def _number(value: str, kind=float):
 
 
 def parse_lineup(text: str) -> list[dict]:
-    """Players in file order, as dicts with the lineup column values (no team or date)."""
+    """Parse a roster-overview export into one dict per player.
+
+    The file is a sequence of sections (``Batters``, ``Reserves``, ``Injured``, ``Minors``,
+    ``Pitchers``, ...) whose title row has no other cells. Reserves/Injured/Minors inherit
+    the player type of the preceding Batters/Pitchers section. Column header rows, stat
+    total rows and the trailing summary footer are skipped.
+
+    Args:
+        text: Decoded CSV content of the export.
+
+    Returns:
+        Players in file order, as dicts of the lineup column values (without team,
+        period or date; ``slot_order`` is the 1-based position in the file).
+
+    Raises:
+        ValueError: If a player row precedes any section heading, a player cell is not
+            ``Name POS,POS | TEAM``, or the file holds no players.
+    """
     players: list[dict] = []
     player_type = None
     status = None
@@ -174,7 +227,14 @@ def parse_lineup(text: str) -> list[dict]:
 
 
 def ensure_schema(conn: db.Connection) -> None:
-    """Create the lineups table, rebuilding one that predates ``player_id`` (it is re-importable)."""
+    """Create the lineups table, migrating older layouts.
+
+    A table lacking ``player_id`` is dropped and rebuilt (its contents are re-importable
+    from the exports); one lacking ``captured_at`` gets that column added in place.
+
+    Args:
+        conn: Open database connection.
+    """
     columns = db.column_names(conn, "lineups")
     if columns and "player_id" not in columns:
         conn.execute("DROP TABLE lineups")
@@ -186,7 +246,23 @@ def ensure_schema(conn: db.Connection) -> None:
 def store_lineup(
     conn: db.Connection, lineup: LineupFile, players: list[dict], index: PlayerIndex, source: str
 ) -> None:
-    """Replace one lineup's rows with ``players``; importing the same lineup again is a no-op in effect."""
+    """Replace one lineup's rows with ``players``; importing the same lineup again is a no-op in effect.
+
+    Resolves each player's canonical ``player_id`` (mutating the dicts in ``players``),
+    warning on stderr for names the index cannot place, deletes any existing rows for the
+    same team/period/date (``<=>`` so a NULL period matches NULL) and inserts the new ones
+    stamped with the current UTC time as ``captured_at``.
+
+    Args:
+        conn: Open database connection.
+        lineup: Team, period and effective date of the lineup.
+        players: Output of ``parse_lineup``.
+        index: Player lookup used to resolve ids.
+        source: Name of the input, used in messages.
+
+    Raises:
+        ValueError: If the team does not exist.
+    """
     if not conn.execute("SELECT 1 FROM teams WHERE id = %s", (lineup.team_id,)).fetchone():
         raise ValueError(f"{source}: no team with id {lineup.team_id}; run scripts/import_teams.py first")
     for player in players:
@@ -208,7 +284,16 @@ def store_lineup(
 
 
 def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = None) -> tuple[LineupFile, int]:
-    """Replace one lineup's rows with the contents of ``path``; returns (lineup, players)."""
+    """Replace one lineup's rows with the contents of ``path``.
+
+    Args:
+        path: Lineup CSV whose name encodes the team, period and date.
+        conn: Open database connection.
+        index: Optional preloaded player index (loaded from ``conn`` if omitted).
+
+    Returns:
+        ``(lineup, player count)``.
+    """
     index = index or PlayerIndex.load(conn)
     lineup = parse_filename(path.name)
     players = parse_lineup(path.read_text(encoding="utf-8-sig"))
@@ -217,7 +302,15 @@ def import_lineup(path: Path, conn: db.Connection, index: PlayerIndex | None = N
 
 
 def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Expand folders into their CSV files; returns (lineup files, skipped files)."""
+    """Expand folders into their CSV files.
+
+    Args:
+        paths: Files and/or folders. Explicit files are taken as given; in folders only
+            names matching ``FILE_PATTERN`` are used.
+
+    Returns:
+        ``(lineup files, skipped files)``.
+    """
     files, skipped = [], []
     for path in paths:
         if path.is_dir():
@@ -229,6 +322,14 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments (default ``sys.argv[1:]``).
+
+    Returns:
+        Exit status: 0 on success, 1 if no files were found or an import failed.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"lineup files or folders (default: {DEFAULT_DIR})")
     args = parser.parse_args(argv)

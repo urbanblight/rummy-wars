@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+import import_players  # noqa: E402
 import import_prospects  # noqa: E402
 from player_ids import PlayerIndex  # noqa: E402
 
@@ -66,3 +68,78 @@ def test_mlb_combined_file_imports_rank_and_skips_blank_rows(tmp_path):
     assert df["rank"].tolist() == [1, 3]
     assert df["player_id"].tolist()[0] == "m1"
     assert df["player_type"].tolist() == ["Batter", "Batter"]
+
+
+def make_db(conn):
+    conn.executescript(import_players.SCHEMA)
+    conn.execute(
+        "INSERT INTO players (player_id, name, cbs_name, team, pos, active) VALUES "
+        "('m1', 'Jesus Made', 'Jesus Made', 'MIL', 'SS', 1)"
+    )
+    conn.executescript(import_prospects.SCHEMA)
+
+
+BP_CSV = (
+    '"Rank","Change","Player","Team","POS.","ETA"\n'
+    '"1","2","Jesus Made","MIL","SS","2027"\n'
+    '"2","1","Unknown Guy","SEA","LHP","2028"\n'
+)
+
+
+def test_find_files_keeps_explicit_paths_and_skips_other_csvs(tmp_path):
+    explicit = tmp_path / "x.csv"
+    folder = tmp_path / "d"
+    folder.mkdir()
+    (folder / "bp-2026-midseason.csv").write_text("")
+    (folder / "notes.csv").write_text("")
+
+    files, skipped = import_prospects.find_files([explicit, folder])
+
+    assert [f.name for f in files] == ["x.csv", "bp-2026-midseason.csv"]
+    assert [f.name for f in skipped] == ["notes.csv"]
+
+
+def test_load_prospects_requires_a_name_column(tmp_path):
+    path = tmp_path / "bp-2026-midseason.csv"
+    path.write_text("Rank,Team\n1,MIL\n")
+    with pytest.raises(ValueError, match="no Player/Name column"):
+        import_prospects.load_prospects(path, INDEX)
+
+
+def test_import_prospects_inserts_rows_and_warns_about_unmatched(tmp_path, conn, capsys):
+    make_db(conn)
+    path = tmp_path / "bp-2026-midseason.csv"
+    path.write_text(BP_CSV)
+
+    result = import_prospects.import_prospects(path, conn, "s1", PlayerIndex.load(conn))
+
+    assert result == ("bp", 2026, "midseason", 2)
+    assert "no player id for 1 players" in capsys.readouterr().err
+    assert conn.execute("SELECT `rank`, player_id, player_type FROM rankings_prospects ORDER BY `rank`").fetchall() == [
+        (1, "m1", "Batter"), (2, None, "Pitcher"),
+    ]
+
+
+def test_main_imports_a_folder_and_reports_problems(tmp_path, conn, capsys):
+    folder = tmp_path / "prospects"
+    folder.mkdir()
+    (folder / "notes.csv").write_text("")
+    (folder / "bp-2026-midseason.csv").write_text(BP_CSV)
+
+    assert import_prospects.main([str(folder)]) == 1  # no players table yet
+    assert "Error:" in capsys.readouterr().err
+
+    make_db(conn)
+    conn.commit()
+    assert import_prospects.main([str(folder)]) == 0
+    captured = capsys.readouterr()
+    assert "Skipping notes.csv" in captured.err
+    assert "bp 2026 midseason: 2 players" in captured.out
+
+    assert import_prospects.main([str(tmp_path / "bp-2026-midseason.csv")]) == 1
+    assert "Missing input file" in capsys.readouterr().err
+
+
+def test_main_with_no_prospect_files(tmp_path, capsys):
+    assert import_prospects.main([str(tmp_path)]) == 1
+    assert "No prospect files found" in capsys.readouterr().err

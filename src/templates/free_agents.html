@@ -51,14 +51,26 @@
 {{ advanced_modal_script() }}
 {{ news_modal_script() }}
 <script>
+  /**
+   * Free agents page: filters by position, and loads further pages of players as the user
+   * scrolls, appending the returned table rows. Uses IntersectionObserver on a sentinel
+   * element, falling back to a scroll listener on older browsers.
+   */
   (function () {
     var sentinel = document.getElementById('free-agent-sentinel');
     var status = document.getElementById('free-agent-status');
     var body = document.querySelector('table tbody');
     var loading = false;
     var filter = document.getElementById('position-filter');
+    // Changing the position filter reloads the page with the new query.
     filter.addEventListener('change', function () { filter.form.submit(); });
 
+    /**
+     * Fetches the next page of rows from the server and appends it to the table.
+     * Ignores calls while a request is in flight or when no more pages remain.
+     *
+     * @returns {void}
+     */
     function loadMore() {
       if (loading || sentinel.hidden) return;
       loading = true;
@@ -67,12 +79,14 @@
       fetch(sentinel.dataset.url + '?' + query)
         .then(function (response) {
           if (!response.ok) throw new Error('Request failed');
+          // The server signals whether more pages exist via a response header.
           var more = response.headers.get('X-Has-More') === '1';
           return response.text().then(function (html) { return { html: html, more: more }; });
         })
         .then(function (result) {
           var template = document.createElement('template');
           template.innerHTML = result.html;
+          // Advance the offset by the number of rows received so the next request continues from here.
           sentinel.dataset.offset = Number(sentinel.dataset.offset) + template.content.querySelectorAll('tr').length;
           body.append(template.content);
           sentinel.hidden = !result.more;
@@ -83,17 +97,21 @@
         })
         .finally(function () {
           loading = false;
+          // Re-observe the sentinel so the observer fires again if it is still on screen after loading.
           if (!sentinel.hidden && observer) { observer.unobserve(sentinel); observer.observe(sentinel); }
         });
     }
 
+    // Declared after loadMore but before any call; stays null when IntersectionObserver is unsupported.
     var observer = null;
     if ('IntersectionObserver' in window) {
       observer = new IntersectionObserver(function (entries) {
         if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+      // Start loading 400px before the sentinel becomes visible.
       }, { rootMargin: '400px' });
       observer.observe(sentinel);
     } else {
+      // Fallback for browsers without IntersectionObserver.
       window.addEventListener('scroll', function () {
         if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore();
       });

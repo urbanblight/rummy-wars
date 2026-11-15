@@ -48,6 +48,7 @@ class PlayerIndex:
     """Name lookup over the ``players`` table."""
 
     def __init__(self, rows: list[tuple]) -> None:
+        """Index ``players`` rows (id, name, CBS name, ...) by every normalized name variant and last name."""
         self._by_key: dict[str, dict[str, tuple]] = {}
         self._by_last: dict[str, dict[str, tuple]] = {}
         for row in rows:

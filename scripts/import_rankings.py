@@ -35,11 +35,16 @@ import db  # noqa: E402
 from player_ids import PlayerIndex  # noqa: E402
 
 load_dotenv(REPO_ROOT / ".env", override=False)
+# Default folder scanned when no PATH is given.
 DEFAULT_DIR = REPO_ROOT / "data" / "rankings"
+# ``<source>-<season>-dynasty.csv``.
 FILE_PATTERN = re.compile(r"^(.+)-(\d{4})-dynasty\.csv$", re.IGNORECASE)
+# Positions that mark a pitcher, since batters and pitchers share one list.
 PITCHER_POSITIONS = {"P", "SP", "RP", "LHP", "RHP"}
+# Recognised headers (lower case); any other column is taken to be the previous list's rank.
 KNOWN_COLUMNS = {"rank", "change", "player", "team", "pos"}
 
+# DDL for ``rankings_dynasty``; one row per (source, season, snapshot, rank).
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rankings_dynasty (
     source VARCHAR(32) NOT NULL,
@@ -61,7 +66,17 @@ CREATE TABLE IF NOT EXISTS rankings_dynasty (
 
 
 def parse_filename(name: str) -> tuple[str, int]:
-    """Read (source, season) from ``<source>-<season>-dynasty.csv``."""
+    """Read (source, season) from ``<source>-<season>-dynasty.csv``.
+
+    Args:
+        name: File name (not a path).
+
+    Returns:
+        ``(source lower-cased, season)``.
+
+    Raises:
+        ValueError: If the name does not match the pattern.
+    """
     match = FILE_PATTERN.match(name)
     if not match:
         raise ValueError(f"{name}: expected <source>-<season>-dynasty.csv")
@@ -69,7 +84,15 @@ def parse_filename(name: str) -> tuple[str, int]:
 
 
 def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Expand folders into their ranking files; returns (ranking files, skipped files)."""
+    """Expand folders into their ranking files.
+
+    Args:
+        paths: Files and/or folders. Explicit files are taken as given; in folders only
+            names matching ``FILE_PATTERN`` are used.
+
+    Returns:
+        ``(ranking files, skipped files)``.
+    """
     files, skipped = [], []
     for path in paths:
         if path.is_dir():
@@ -81,6 +104,21 @@ def find_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 
 
 def load_rankings(path: Path, index: PlayerIndex) -> pd.DataFrame:
+    """Read a dynasty ranking export into table-shaped rows.
+
+    Args:
+        path: Ranking CSV. Headers are matched case-insensitively; an unrecognised extra
+            column is read as the previous list's rank.
+        index: Player lookup used to resolve ``player_id``.
+
+    Returns:
+        A DataFrame of rank, change, previous_rank, player_id, name, team, pos and
+        player_type, with None for missing values. Rows lacking a rank or name are
+        dropped and the first row wins for a repeated rank.
+
+    Raises:
+        ValueError: If the ``Rank`` or ``Player`` column is missing.
+    """
     df = pd.read_csv(path, encoding="utf-8-sig")
     df.columns = [str(column).strip() for column in df.columns]
     lower = {column.lower(): column for column in df.columns}
@@ -114,7 +152,17 @@ def load_rankings(path: Path, index: PlayerIndex) -> pd.DataFrame:
 
 
 def import_rankings(path: Path, conn: db.Connection, snapshot: str, index: PlayerIndex) -> tuple[str, int, int]:
-    """Insert one file as a new snapshot; returns (source, season, rows)."""
+    """Insert one file as a new snapshot, warning on stderr about unmatched players.
+
+    Args:
+        path: Ranking CSV named ``<source>-<season>-dynasty.csv``.
+        conn: Open database connection.
+        snapshot: Timestamp shared by every file of one run.
+        index: Player lookup used to resolve ids.
+
+    Returns:
+        ``(source, season, rows inserted)``.
+    """
     source, season = parse_filename(path.name)
     df = load_rankings(path, index)
     unmatched = df.loc[df["player_id"].isna(), "name"]
@@ -132,6 +180,14 @@ def import_rankings(path: Path, conn: db.Connection, snapshot: str, index: Playe
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments (default ``sys.argv[1:]``).
+
+    Returns:
+        Exit status: 0 on success, 1 if no files were found or an import failed.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path, help=f"ranking files or folders (default: {DEFAULT_DIR})")
     args = parser.parse_args(argv)

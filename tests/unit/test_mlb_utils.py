@@ -410,6 +410,14 @@ class ValidatorBranchTests(unittest.TestCase):
 
         self.assertEqual(warnings, [])
 
+    @patch("utils.MODE", "inseason")
+    @patch("utils.is_milb", return_value=True)
+    @patch("utils.get_mlbam_player_by_name", return_value=player())
+    def test_inseason_minors_player_on_a_minor_league_team_has_no_warning(self, *_mocks):
+        violations, warnings = self.validate([roster_player("Minor", "Minors")])
+
+        self.assertEqual((violations, warnings), ([], []))
+
     @patch("utils.is_milb", return_value=True)
     @patch("utils.get_mlbam_player_by_name", return_value=player())
     def test_minor_league_player_has_no_warning(self, *_mocks):

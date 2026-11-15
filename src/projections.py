@@ -52,9 +52,11 @@ def systems() -> list[dict]:
 
 
 def _value(row: db.Row, player_type: str, cat: str) -> float | None:
+    """One scoring category from a projection row, deriving ``W+QS`` and ``Kd9`` when the source lacks them."""
     columns = row.keys()
 
     def get(column: str) -> float | None:
+        """The column's value, or None when this projection table does not have it."""
         return row[column] if column in columns else None
 
     if cat == "W+QS":

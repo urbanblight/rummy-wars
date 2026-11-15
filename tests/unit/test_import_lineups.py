@@ -204,3 +204,41 @@ def test_parse_team_filename_forms():
     for bad in ("roster-overview-3-12-20250914.csv", "roster-overview-20251345.csv", "lineup.csv"):
         with pytest.raises(ValueError):
             parse_team_filename(bad, 7)
+
+
+def test_parse_lineup_skips_blank_lines_and_rows():
+    text = LINEUP.replace("Batters\n", "\nBatters\n\n   ,  \n", 1)
+    assert len(import_lineups.parse_lineup(text)) == 7
+
+
+def test_parse_lineup_rejects_a_player_before_any_section_heading():
+    with pytest.raises(ValueError, match="before any section heading"):
+        import_lineups.parse_lineup(",C,Liam Hicks C | TB ,x,1,2,3%,4%\n")
+
+
+def test_find_files_keeps_explicit_file_paths_even_if_misnamed(tmp_path):
+    explicit = tmp_path / "anything.csv"
+
+    files, skipped = import_lineups.find_files([explicit])
+
+    assert files == [explicit]
+    assert skipped == []
+
+
+def test_main_reports_skipped_files_and_no_files(tmp_path, capsys):
+    folder = tmp_path / "lineups"
+    folder.mkdir()
+    (folder / "notes.csv").write_text("")
+
+    assert import_lineups.main([str(folder)]) == 1
+    err = capsys.readouterr().err
+    assert "Skipping notes.csv" in err
+    assert "No lineup files found" in err
+
+
+def test_main_reports_a_missing_input_file(tmp_path, conn, capsys):
+    make_db(conn)
+    conn.commit()
+
+    assert import_lineups.main([str(tmp_path / "roster-overview-7-20260928.csv")]) == 1
+    assert "Missing input file" in capsys.readouterr().err

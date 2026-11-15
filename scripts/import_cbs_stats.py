@@ -25,6 +25,7 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
+# Matches the CBS "Player" cell, e.g. "Aaron Judge RF | NYY" -> name, positions, MLB team.
 PLAYER_PATTERN = re.compile(r"^(.*?)\s+([A-Za-z0-9,]+)\s*\|\s*([A-Z]{2,3})$")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -40,14 +41,28 @@ load_dotenv(REPO_ROOT / ".env", override=False)
 
 
 def innings_to_float(value: float) -> float:
-    """Convert baseball notation (174.2 = 174 2/3 innings) to true innings."""
+    """Convert baseball innings notation to true innings.
+
+    Args:
+        value: Innings where the decimal digit counts outs, e.g. ``174.2``.
+
+    Returns:
+        True innings, e.g. ``174 + 2/3``.
+    """
     whole = int(value)
     outs = round((value - whole) * 10)
     return whole + outs / 3
 
 
 def load_team_ids() -> dict[str, int]:
-    """Map normalized fantasy team name -> teams.id (run import_teams.py first)."""
+    """Map normalized fantasy team names to ``teams.id``.
+
+    Returns:
+        Mapping of ``normalize_team_name(name)`` to team id.
+
+    Raises:
+        RuntimeError: If the ``teams`` table is missing (run ``import_teams.py``).
+    """
     try:
         with db.connect() as conn:
             rows = conn.execute("SELECT id, name FROM teams").fetchall()
@@ -57,12 +72,33 @@ def load_team_ids() -> dict[str, int]:
 
 
 def load_player_index() -> PlayerIndex:
-    """Index the players table (run import_players.py first)."""
+    """Load the canonical players table into a ``PlayerIndex``.
+
+    Returns:
+        An index for resolving CBS names to player ids (run
+        ``import_players.py`` first).
+    """
     with db.connect() as conn:
         return PlayerIndex.load(conn)
 
 
 def load_csv(path: Path, team_ids: dict[str, int], index: PlayerIndex, player_type: str) -> pd.DataFrame:
+    """Read one CBS stats export and attach ids.
+
+    Splits the "Player" cell into ``name``/``positions``/``team``, resolves
+    ``player_id`` (warning on stderr for unknown names), maps the owner in
+    "Avail" to ``team_id`` (NULL for free agents and unknown owners), and drops
+    duplicate players per MLB team, keeping the best-ranked row.
+
+    Args:
+        path: CSV with one preamble line before the header.
+        team_ids: Result of ``load_team_ids``.
+        index: Result of ``load_player_index``.
+        player_type: ``"Batter"`` or ``"Pitcher"``, used to disambiguate players.
+
+    Returns:
+        The cleaned stats frame with a fresh index.
+    """
     df = pd.read_csv(path, skiprows=1, index_col=False)
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
     df = df[df["Player"].notna()].copy()  # drops the trailing "Report Updated" row
@@ -86,6 +122,24 @@ def load_csv(path: Path, team_ids: dict[str, int], index: PlayerIndex, player_ty
 
 
 def import_stats(year: str, data_dir: Path) -> dict[str, int]:
+    """Import a season's batting and pitching stats and derived scores.
+
+    Replaces the ``batting`` and ``pitching`` tables, then refreshes the SGP
+    factors (a failure there only warns, e.g. when no standings exist yet),
+    z-scores and projection scores, and finally indexes ``player_id``.
+
+    Args:
+        year: Season folder name under ``data_dir``.
+        data_dir: Directory holding ``<year>/stats-batting.csv`` and
+            ``stats-pitching.csv``.
+
+    Returns:
+        Row counts as ``{"batting": n, "pitching": m}``.
+
+    Raises:
+        FileNotFoundError: If a stats file is missing.
+        RuntimeError: If the teams table is missing.
+    """
     team_ids = load_team_ids()
     index = load_player_index()
     batting = load_csv(data_dir / year / "stats-batting.csv", team_ids, index, "Batter")
@@ -108,6 +162,14 @@ def import_stats(year: str, data_dir: Path) -> dict[str, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments to parse instead of ``sys.argv[1:]`` (for tests).
+
+    Returns:
+        Process exit status: 0 on success, 1 on a missing file or setup error.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--year", default="2026")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")

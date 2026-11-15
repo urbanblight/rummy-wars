@@ -35,10 +35,10 @@ def database(monkeypatch):
     """An empty MySQL test database; ``DATABASE_URL`` points at it for the test."""
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
-        pytest.skip("TEST_DATABASE_URL is not set")
+        pytest.skip("TEST_DATABASE_URL is not set")  # pragma: no cover - CI always configures a database
     monkeypatch.setenv("DATABASE_URL", url)
     if "test" not in db.database_url().database.lower():
-        pytest.fail("TEST_DATABASE_URL must name a database containing 'test'; its tables are dropped")
+        pytest.fail("TEST_DATABASE_URL must name a database containing 'test'; its tables are dropped")  # pragma: no cover - safety guard
     monkeypatch.setattr(zscores, "_CBS_IDS", None)
     with db.connect() as conn:
         _drop_all_tables(conn)

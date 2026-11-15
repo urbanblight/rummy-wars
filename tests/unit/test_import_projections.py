@@ -79,3 +79,98 @@ def test_a_file_of_the_wrong_type_is_rejected_without_inserting_rows(tmp_path, c
     with pytest.raises(ValueError, match="does not look like a pitching export"):
         import_projections.import_projections(path, conn, "2026-10-29T00:00:00Z")
     assert conn.execute("SELECT COUNT(*) FROM pitching_projections").fetchone() == (0,)
+
+
+PITCHING_CSV = "Name,Team,W,IP,ERA,SO,PlayerId,MLBAMID\nAce Pitcher,NYY,10,180.1,3.1,200,p1,\n"
+
+
+def test_widen_count_columns_converts_int_columns_to_double(conn):
+    make_db(conn)
+    conn.execute("ALTER TABLE batting_projections MODIFY pa INT")
+    import_projections.widen_count_columns(conn)
+    data_type = conn.execute(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'batting_projections' AND column_name = 'pa'"
+    ).fetchone()[0]
+    assert data_type == "double"
+
+
+def test_find_files_keeps_explicit_paths_and_skips_other_csvs(tmp_path):
+    explicit = tmp_path / "whatever.csv"
+    (tmp_path / "x").mkdir()
+    (tmp_path / "x" / "ZIPS-2027-batting.csv").write_text("")
+    (tmp_path / "x" / "notes.csv").write_text("")
+
+    files, skipped = import_projections.find_files([explicit, tmp_path / "x"])
+
+    assert [f.name for f in files] == ["whatever.csv", "ZIPS-2027-batting.csv"]
+    assert [f.name for f in skipped] == ["notes.csv"]
+
+
+def test_load_player_ids_needs_the_players_table(conn):
+    with pytest.raises(RuntimeError, match="import_players"):
+        import_projections.load_player_ids(conn)
+
+
+def test_load_player_ids_indexes_both_id_kinds(conn):
+    make_db(conn)
+    by_fangraphs, by_mlb = import_projections.load_player_ids(conn)
+    assert by_fangraphs == {"15640": ["judgeaa01"]}
+    assert by_mlb == {"592450": ["judgeaa01"]}
+
+
+def test_pick_disambiguates_two_way_players():
+    pick = import_projections.pick
+    assert pick(None, "batting") is None
+    assert pick(["a"], "batting") == "a"
+    assert pick(["ohtani", "ohtanip"], "batting") == "ohtani"
+    assert pick(["ohtani", "ohtanip"], "pitching") == "ohtanip"
+    assert pick(["a", "b"], "batting") is None  # genuinely ambiguous
+
+
+def test_id_text_normalises_floats_blanks_and_nan():
+    assert import_projections._id_text(float("nan")) is None
+    assert import_projections._id_text("123.0") == "123"
+    assert import_projections._id_text("  ") is None
+
+
+def test_load_projections_requires_a_name_column(tmp_path):
+    path = tmp_path / "ZIPS-2027-batting.csv"
+    path.write_text("PA,AB\n1,1\n")
+    with pytest.raises(ValueError, match="no Name column"):
+        import_projections.load_projections(path, "batting", ({}, {}))
+
+
+def test_pitching_file_imports_and_warns_about_unmatched_players(tmp_path, conn, capsys):
+    make_db(conn)
+    path = tmp_path / "ZIPS-2027-pitching.csv"
+    path.write_text(PITCHING_CSV)
+
+    assert import_projections.import_projections(path, conn, "s1") == ("ZIPS", 2027, "pitching", 1)
+
+    assert "no player id for 1 players" in capsys.readouterr().err
+    assert conn.execute("SELECT name, ip, era FROM pitching_projections").fetchall() == [("Ace Pitcher", 180.1, 3.1)]
+
+
+def test_main_without_files_or_input_reports_errors(tmp_path, conn, capsys):
+    assert import_projections.main([str(tmp_path)]) == 1
+    assert "No projection files found" in capsys.readouterr().err
+
+    make_db(conn)
+    conn.commit()
+    assert import_projections.main([str(tmp_path / "ZIPS-2027-batting.csv")]) == 1
+    assert "Missing input file" in capsys.readouterr().err
+
+
+def test_main_warns_when_scores_cannot_be_calculated(tmp_path, conn, capsys, monkeypatch):
+    make_db(conn)
+    conn.commit()
+    (tmp_path / "ZIPS-2027-batting.csv").write_text(CSV, encoding="utf-8")
+
+    def fail():
+        raise ValueError("no stats")
+
+    monkeypatch.setattr(import_projections.projections, "save_projection_scores", fail)
+
+    assert import_projections.main([str(tmp_path)]) == 0
+    assert "projection scores not calculated (no stats)" in capsys.readouterr().err

@@ -27,9 +27,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import db  # noqa: E402
+
+# Live download of the Smart Fantasy Baseball ID map.
 DEFAULT_SOURCE = "https://www.smartfantasybaseball.com/PLAYERIDMAPCSV"
 
-# Map column (first one present wins) -> players column.
+# Map column -> players column. FanGraphs id appears under two header spellings; the
+# first one present in the file wins.
 COLUMNS = {
     "IDPLAYER": ("player_id",),
     "PLAYERNAME": ("name",),
@@ -43,8 +46,10 @@ COLUMNS = {
     "BPID": ("bp_id",),
     "MLBID": ("mlb_id",),
 }
+# Without these two columns a row cannot be keyed or named, so the file is rejected.
 REQUIRED = ("IDPLAYER", "PLAYERNAME")
 
+# DDL for ``players``; ``name`` and ``cbs_name`` are indexed for name-based lookups.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
     player_id VARCHAR(32) PRIMARY KEY,
@@ -62,11 +67,25 @@ CREATE TABLE IF NOT EXISTS players (
 );
 """
 
+# Final column order, used for both the DataFrame and the INSERT.
 FIELDS = ("player_id", "name", "cbs_name", "team", "pos", "active", "fangraphs_id", "cbs_id", "mlb_id", "bp_id")
 
 
 def load_players(source: str | Path) -> pd.DataFrame:
-    """Read the ID map and keep the mapping columns, one row per canonical id."""
+    """Read the ID map and keep the mapping columns, one row per canonical id.
+
+    Args:
+        source: ``http(s)`` URL or path of a local CSV.
+
+    Returns:
+        A DataFrame with exactly the ``FIELDS`` columns; absent values are None and
+        ``active`` is 1/0. Rows without an id or name are dropped, and the first row
+        wins when an id repeats.
+
+    Raises:
+        ValueError: If a required column is missing.
+        requests.RequestException: If the download fails.
+    """
     if str(source).startswith(("http://", "https://")):
         response = requests.get(source, headers={"User-Agent": "rummy-wars"}, timeout=60)
         response.raise_for_status()
@@ -88,6 +107,14 @@ def load_players(source: str | Path) -> pd.DataFrame:
 
 
 def import_players(source: str | Path) -> int:
+    """Upsert the ID map into ``players``.
+
+    Args:
+        source: URL or path accepted by ``load_players``.
+
+    Returns:
+        Number of players read from the map.
+    """
     players = load_players(source)
     updates = ", ".join(f"{field} = new.{field}" for field in FIELDS[1:])
     with db.connect() as conn:
@@ -101,6 +128,14 @@ def import_players(source: str | Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments (default ``sys.argv[1:]``).
+
+    Returns:
+        Exit status: 0 on success, 1 on any error.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="player ID map URL or CSV file")
     args = parser.parse_args(argv)

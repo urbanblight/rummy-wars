@@ -1,10 +1,34 @@
-"""League z-score and SGP evaluation of rostered players against the top of the player pool."""
+"""League z-score and SGP evaluation of rostered players against the top of the player pool.
+
+Two complementary measures are computed per scoring category and in total:
+
+* **z-scores** compare a player with the mean and spread of the top ``POOL_SIZE`` ranked
+  players, so every category lands on one comparable scale.
+* **SGP** (standings gain points) converts the same gap into standings points using the
+  stat-per-point factors in ``sgp_factors``.
+
+Both are also expressed *above replacement*: relative to what a freely available player
+(or, for pitchers, the depth of the active pool) would provide at the same position.
+
+The module has three layers:
+
+1. Pure pandas computation (``compute_z_scores``, ``compute_sgp``,
+   ``compute_above_replacement``, ``score_frame``) that works on a stats table.
+2. ``save_z_scores``, which runs that computation and writes the results back to the
+   ``batting`` and ``pitching`` tables so the web app only has to read them.
+3. Read-side helpers (``evaluate_roster``, ``load_players``, ``load_free_agents``, ...) and
+   small TTL caches of id mappings and rankings used when rendering pages.
+
+Database access goes through :mod:`db`; the read helpers degrade to empty results when the
+database or a table is missing so pages still render.
+"""
 
 from __future__ import annotations
 
 import os
 import re
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import pandas as pd
@@ -17,8 +41,12 @@ except ImportError:  # pragma: no cover - supports direct module imports
     import models
     from player_ids import PlayerIndex, normalize_name
 
+# Size of the reference pool: only the best ``POOL_SIZE`` ranked players define the mean and
+# spread, so the long tail of marginal players does not drag the scale down.
 POOL_SIZE = 250
+# Rank CBS assigns to players it leaves unranked; such players never enter the pool.
 UNRANKED = 9999
+# Active hitter/pitcher slots per team when ``*_ACTIVE_SLOTS`` is not configured.
 DEFAULT_ACTIVE_SLOTS = 10
 # Replacement level at a position is the average of this many best free agents there.
 REPLACEMENT_POOL = 5
@@ -27,6 +55,7 @@ MIN_REPLACEMENT_VOLUME = {"Batter": 100, "Pitcher": 30}
 PITCHER_POSITIONS = {"SP", "RP"}
 # A pitcher who starts at least this share of his appearances is a starter, otherwise a reliever.
 STARTER_SHARE = 0.5
+# Column-name infix for above-replacement values, e.g. ``z_total_above_replacement``.
 ABOVE_REPLACEMENT = "above_replacement"
 
 # Scoring category -> how to derive it from the imported table's columns.
@@ -39,12 +68,29 @@ RATE_CATEGORIES = {"BA", "OBP", "SLG", "ERA", "WHIP", "Kd9"}
 
 
 def scoring_categories(player_type: str) -> list[str]:
+    """The league's scoring categories for a player type, in configured order.
+
+    Read from ``BATTING_SCORING_STATS`` / ``PITCHING_SCORING_STATS`` (preferred) or the older
+    ``*_SCORING_CATEGORIES`` variable, as comma-separated names. Reading the environment on
+    every call keeps the result in step with configuration changes (and tests).
+
+    Args:
+        player_type: ``"Batter"`` or ``"Pitcher"``.
+
+    Returns:
+        The category names, empty when none are configured.
+    """
     prefix = "BATTING" if player_type == "Batter" else "PITCHING"
     raw = os.getenv(f"{prefix}_SCORING_STATS") or os.getenv(f"{prefix}_SCORING_CATEGORIES", "")
     return [cat.strip() for cat in raw.split(",") if cat.strip()]
 
 
 def _add_category(df: pd.DataFrame, cat: str, columns: dict[str, str]) -> pd.Series:
+    """Raw values of a scoring category for every row of ``df``.
+
+    Most categories are a column (possibly renamed through ``columns``); ``W+QS`` and ``Kd9``
+    are derived. Innings of zero give NaN for ``Kd9`` rather than a division error.
+    """
     if cat == "W+QS":
         return df["W"] + df["QS"]
     if cat == "Kd9":
@@ -53,6 +99,7 @@ def _add_category(df: pd.DataFrame, cat: str, columns: dict[str, str]) -> pd.Ser
 
 
 def _slug(cat: str) -> str:
+    """Make a category name safe inside a SQL column name (``W+QS`` -> ``W_QS``)."""
     return re.sub(r"[^A-Za-z0-9]+", "_", cat).strip("_")
 
 
@@ -66,8 +113,11 @@ def sgp_column(cat: str) -> str:
     return "sgp_" + _slug(cat)
 
 
+# Pseudo-category naming the combined score (``z_total``, ``sgp_total`` ...).
 TOTAL = "total"
+# Stats column holding a player type's playing time.
 PLAYING_TIME_COLUMN = {"Batter": "AB", "Pitcher": "INNs"}
+# Player type -> (stats table, category -> column renames for that table).
 TABLES = {
     "Batter": ("batting", BATTING_COLUMNS),
     "Pitcher": ("pitching", PITCHING_COLUMNS),
@@ -91,14 +141,25 @@ def compute_z_scores(
 ) -> pd.DataFrame:
     """Add ``z_<cat>``, ``z_total`` and matching ``*_rank`` columns to a copy of ``df``.
 
+    Args:
+        df: Stats table with a ``rank`` column (CBS rank) and the category columns.
+        categories: Scoring categories to score.
+        columns: Category -> column renames (see ``TABLES``).
+        playing_time: Playing-time column (``AB`` / ``INNs``); enables volume weighting.
+
+    Returns:
+        A copy of ``df`` with the new columns.
+
     ``z_total`` is the average of the category z-scores, so it stays on the same
     scale however many categories the league scores.
 
     Mean and standard deviation come from the top ``POOL_SIZE`` ranked players.
     Ratio categories (``RATE_CATEGORIES``) are multiplied by the player's playing
     time relative to the pool average (see ``_weight_by_volume``), so a .300 hitter
-    over 600 AB counts for more than one over 30 AB. Players without playing time (``playing_time`` column <= 0) get no z-scores
-    and are left out of the ranks. Ranks are 1 = best, within the whole table.
+    over 600 AB counts for more than one over 30 AB. Players without playing time
+    (``playing_time`` column <= 0) get no z-scores and are left out of the ranks. Ranks
+    are 1 = best, within the whole table. A category with no spread in the pool scores 0
+    for everyone instead of dividing by zero.
     """
     df = df.copy()
     pool = df[df["rank"] < UNRANKED].nsmallest(POOL_SIZE, "rank")
@@ -123,7 +184,10 @@ def compute_z_scores(
 
 
 def load_sgp_factors(conn: db.Connection) -> dict[str, float]:
-    """Category -> stat per standings point from ``sgp_factors`` (empty if not calculated)."""
+    """Category -> stat per standings point from ``sgp_factors`` (empty if not calculated).
+
+    A missing table is normal before ``scripts/calculate_sgp.py`` has run, so it is not an error.
+    """
     try:
         return dict(conn.execute("SELECT category, factor FROM sgp_factors").fetchall())
     except db.SchemaError:
@@ -233,6 +297,14 @@ def team_volume(conn: db.Connection, df: pd.DataFrame, player_type: str) -> floa
     active lineups are used: the playing time of the players in a team's active slots,
     scaled for batters by ``roster_coverage`` because a lineup is a snapshot. Without
     lineups, a team's most-used players stand in for its active slots.
+
+    Args:
+        conn: Open database connection.
+        df: Stats table with ``team_id``, ``player_id`` and the playing-time column.
+        player_type: ``"Batter"`` or ``"Pitcher"``.
+
+    Returns:
+        Playing time (AB or innings) of a typical team; 0.0 if no team owns anyone.
     """
     playing_time = PLAYING_TIME_COLUMN[player_type]
     if player_type == "Pitcher":
@@ -268,6 +340,17 @@ def compute_sgp(
     team's total in proportion to the playing time behind it. Lower-is-better
     categories are inverted. Players without playing time get no SGP and are
     left out of the ranks. Returns ``df`` unchanged if a factor is missing.
+
+    Args:
+        df: Stats table with ``rank`` and the category columns.
+        categories: Scoring categories to score.
+        columns: Category -> column renames (see ``TABLES``).
+        factors: Category -> stat per standings point (``load_sgp_factors``).
+        playing_time: Playing-time column (``AB`` / ``INNs``).
+        volume_per_team: Typical team playing time (see ``team_volume``).
+
+    Returns:
+        A copy of ``df`` with the SGP columns added (or unchanged, see above).
     """
     df = df.copy()
     if volume_per_team <= 0 or any(factors.get(cat, 0) <= 0 for cat in categories):
@@ -393,7 +476,7 @@ def slot_replacement_levels(
 
 
 def compute_above_replacement(
-    df: pd.DataFrame, player_type: str, total_column: str, category_columns: list[str] = (),
+    df: pd.DataFrame, player_type: str, total_column: str, category_columns: Sequence[str] = (),
     slots: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """Add ``<column>_above_replacement`` and its ``_rank`` for the total and each category column.
@@ -408,6 +491,17 @@ def compute_above_replacement(
     wire or the depth of the active pool. Only free agents with at least ``MIN_REPLACEMENT_VOLUME``
     of playing time can set a replacement level, so a few at-bats never define it.
     Players at a position with no replacement candidates, or without a score, get NaN.
+
+    Args:
+        df: Scored stats table with ``positions``, ``team_id`` (NULL for free agents) and
+            ``total_column``.
+        player_type: ``"Batter"`` or ``"Pitcher"``.
+        total_column: Column of the total score (``z_total`` or ``sgp_total``).
+        category_columns: Per-category score columns to measure the same way.
+        slots: Position -> active slots per team, to apply the depth floor; None to skip it.
+
+    Returns:
+        A copy of ``df`` with ``<column>_above_replacement`` and ``..._rank`` columns.
     """
     df = df.copy()
     columns = list(category_columns)
@@ -429,6 +523,7 @@ def compute_above_replacement(
                 levels[position] = depth
 
     def best_position(positions: list[str]) -> str | None:
+        """The position with the lowest replacement total (ties by name), or None if none has a level."""
         options = [p for p in positions if p in levels]
         return min(options, key=lambda p: (levels[p][total_column], p)) if options else None
 
@@ -449,6 +544,15 @@ def score_frame(
     ``df`` needs the player type's stat columns, ``rank``, and (for SGP and replacement levels)
     ``team_id`` (NULL for free agents) and ``positions``. Returns ``df`` unchanged when no
     scoring categories are configured.
+
+    Args:
+        conn: Open database connection (for team volume and lineups).
+        df: Stats table as stored in the ``batting`` or ``pitching`` table.
+        player_type: ``"Batter"`` or ``"Pitcher"``.
+        factors: Category -> stat per standings point; empty to skip SGP.
+
+    Returns:
+        The scored frame; stale ``z_``/``sgp_`` columns from a previous run are replaced.
     """
     categories = scoring_categories(player_type)
     if not categories:
@@ -497,8 +601,17 @@ def scoring_stat(row: db.Row, cat: str, columns: dict[str, str]) -> float | None
     return row[columns.get(cat, cat)]
 
 
-def _above_replacement(row: db.Row, column, categories: list[str]) -> dict:
-    """Total and per-category above-replacement values with ranks, as ``{key: (value, rank)}``."""
+def _above_replacement(row: db.Row, column: Callable[[str], str], categories: list[str]) -> dict:
+    """Total and per-category above-replacement values with ranks, as ``{key: (value, rank)}``.
+
+    Args:
+        row: Stored stats row.
+        column: ``z_column`` or ``sgp_column``, choosing which score family to read.
+        categories: Scoring categories to include besides the total.
+
+    Returns:
+        ``{key: (value, rank)}``, with None for a key lacking a value or rank.
+    """
     result = {}
     for key in (TOTAL, *categories):
         name = f"{column(key)}_{ABOVE_REPLACEMENT}"
@@ -566,6 +679,7 @@ def attach_scores(player: models.Player, row: db.Row, context: ScoreContext, sta
 
 
 def _read_table(conn: db.Connection, table: str, where: str = "", params: tuple = ()) -> list[db.Row] | None:
+    """Rows of a stats table (optionally filtered by a trusted ``where`` clause), or None if it is missing."""
     try:
         return conn.execute(f"SELECT * FROM {table} {where}", params).fetchall()  # noqa: S608 - fixed table names
     except db.SchemaError:
@@ -573,6 +687,7 @@ def _read_table(conn: db.Connection, table: str, where: str = "", params: tuple 
 
 
 def _player_index(conn: db.Connection) -> PlayerIndex:
+    """Name index over the players table; empty when the table has not been imported."""
     try:
         return PlayerIndex.load(conn)
     except RuntimeError:  # no players table: nothing can be matched
@@ -584,7 +699,12 @@ def evaluate_roster(roster: models.TeamRoster) -> None:
 
     Reads the columns written by ``save_z_scores``; players missing from the
     stats pool (or without playing time) are left without scores. SGP is
-    attached only when the database has it.
+    attached only when the database has it. Players without a ``player_id`` (e.g. from an
+    uploaded CBS export, which only has names) are resolved through the players table first.
+    Does nothing if the database is unavailable.
+
+    Args:
+        roster: Roster whose players are updated in place.
     """
     conn = db.connect_or_none()
     if conn is None:
@@ -682,6 +802,13 @@ def load_players(team_id: int | None, limit: int | None = None) -> dict[str, lis
     ``team_id`` selects a fantasy team's players, or the free agents when None.
     Free agents without playing time are left out. ``limit`` keeps only the best
     players of each type. Returns ``{"Batter": [...], "Pitcher": [...]}``.
+
+    Args:
+        team_id: Fantasy team id, or None for free agents.
+        limit: Maximum players per type, or None for all.
+
+    Returns:
+        Players by type; empty lists when the database or stats tables are unavailable.
     """
     result: dict[str, list[models.Player]] = {player_type: [] for player_type in TABLES}
     conn = db.connect_or_none()
@@ -715,6 +842,7 @@ def load_players(team_id: int | None, limit: int | None = None) -> dict[str, lis
     return result
 
 
+# Sort key used when the caller does not choose one: CBS's own player rank.
 FREE_AGENT_DEFAULT_SORT = "cbs"
 
 
@@ -723,7 +851,18 @@ def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -
 
     Keys are ``name``, ``bp``, ``cbs``, ``rank``, ``vr`` or ``stat:<category>``. Without a direction the
     natural one applies: best first, so highest for counting stats and SGP VR, lowest for ranks and ERA/WHIP.
-    Raises ``ValueError`` for an unknown key or direction.
+
+    Args:
+        player_type: ``"Batter"`` or ``"Pitcher"``; ``stat:`` keys must be one of its categories.
+        sort: Sort key, or None/empty for ``FREE_AGENT_DEFAULT_SORT``.
+        direction: ``"asc"``, ``"desc"`` or None/empty for the natural direction.
+
+    Returns:
+        ``(key, descending)``.
+
+    Raises:
+        ValueError: For an unknown key or direction. Keys end up in SQL, so only whitelisted
+            values may pass.
     """
     key = sort or FREE_AGENT_DEFAULT_SORT
     if key.startswith("stat:"):
@@ -768,6 +907,20 @@ def load_free_agents(
     happen in the database so only the requested rows are read; BP rankings live in another table, so that
     sort orders the matching ids in Python first. Free agents without playing time are left out; those with
     no value to sort by come last.
+
+    Args:
+        player_type: ``"Batter"`` or ``"Pitcher"``; anything else yields no players.
+        offset: Number of free agents to skip.
+        limit: Page size.
+        position: Only players eligible at this whole position (``C`` does not match ``CF``).
+        sort: Sort key (see ``free_agent_sort``).
+        direction: ``"asc"``, ``"desc"`` or None for the natural direction.
+
+    Returns:
+        The page of players with scores attached; empty if the database or table is unavailable.
+
+    Raises:
+        ValueError: For an invalid ``sort`` or ``direction``.
     """
     if player_type not in TABLES:
         return []
@@ -824,6 +977,10 @@ def load_free_agents(
     return players
 
 
+# Process-wide caches of slowly changing lookups, each ``(loaded_at, data)`` using
+# ``time.monotonic``. They are rebuilt after ``CBS_IDS_TTL`` seconds so page renders do not
+# query the database for every player. Note: an unreachable database is not cached, so the
+# next call retries.
 _CBS_IDS: tuple[float, dict[str, str]] | None = None
 CBS_IDS_TTL = 300  # seconds
 
@@ -858,6 +1015,7 @@ def bp_ranks() -> dict[str, tuple[int, int | None]]:
 
 _PROSPECTS: tuple[float, dict[str, list[dict]]] | None = None
 PROSPECT_MAX_RANK = 250  # a prospect needs a rank this good (or better) on some list to be shown
+# Ranking source key -> display name.
 PROSPECT_SOURCES = {"bp": "Baseball Prospectus", "fangraphs": "FanGraphs", "mlb": "MLB"}
 
 

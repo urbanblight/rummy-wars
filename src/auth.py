@@ -23,6 +23,7 @@ TEAM_ENDPOINTS = ("upload_lineup",)
 
 
 def local_dev():
+    """True when not running on Cloud Run, where there is no IAP and the developer is trusted."""
     return not os.environ.get("K_SERVICE")
 
 
@@ -86,8 +87,14 @@ def can_edit_team(team_id):
 
 
 def init_app(app):
+    """Register the write-restriction hook and template context on a Flask app.
+
+    Args:
+        app: The Flask application to protect.
+    """
     @app.before_request
     def restrict_writes():
+        """Reject unsafe requests (and ``/add``) from non-admins, except open and team endpoints."""
         if request.endpoint in OPEN_ENDPOINTS or request.endpoint in TEAM_ENDPOINTS:
             return None
         if not is_admin() and (request.method not in SAFE_METHODS or request.path == "/add"):
@@ -95,4 +102,5 @@ def init_app(app):
 
     @app.context_processor
     def inject_admin():
+        """Expose ``is_admin`` and ``can_edit_team`` to templates so they can hide write controls."""
         return {"is_admin": is_admin(), "can_edit_team": can_edit_team}

@@ -96,15 +96,21 @@
 
 {% block scripts %}
   <script>
+    /**
+     * Roster upload page: shows the chosen file name in the drop zone, and on submit shows the
+     * loading screen and disables the button to prevent duplicate uploads.
+     */
     const rosterInput = document.querySelector('#roster');
     const rosterForm = document.querySelector('form');
     const loadingScreen = document.querySelector('#loading-screen');
 
+    // Show the selected file name, or the default hint if the selection was cleared.
     rosterInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       document.querySelector('#file-name').textContent = file ? file.name : 'CBS roster CSV, up to 5 MB';
     });
 
+    // Disable the button on submit so a double click can't upload twice.
     rosterForm.addEventListener('submit', () => {
       loadingScreen.hidden = false;
       rosterForm.querySelector('button').disabled = true;

@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import db  # noqa: E402
 
+# CBS column header -> database column name; also selects the columns we keep.
 COLUMNS = {
     "TEAM NAME": "name",
     "TEAM ABBREV.": "abbrev",
@@ -37,16 +38,39 @@ CBS_SKIPPED_TEAM_ID = 3
 
 
 def cbs_team_id(position: int) -> int:
-    """Team id for the team at a 1-based position in the teams file."""
+    """Return the CBS team id for a position in the teams file.
+
+    Args:
+        position: 1-based row position of the team in the file.
+
+    Returns:
+        The position, bumped by one once it reaches the skipped id 3.
+    """
     return position if position < CBS_SKIPPED_TEAM_ID else position + 1
 
 
 def normalize_team_name(name: str) -> str:
-    """Name used to match teams across files (CBS exports backslash-escape quotes)."""
+    """Normalize a team name so it matches across files and seasons.
+
+    Args:
+        name: Raw team name, possibly with CBS backslash-escaped quotes.
+
+    Returns:
+        The name without backslashes, trimmed and case-folded.
+    """
     return name.replace("\\", "").strip().casefold()
 
 
 def load_teams(csv_path: Path) -> pd.DataFrame:
+    """Read the CBS teams export.
+
+    Args:
+        csv_path: Path to ``teams.csv`` (two preamble lines before the header).
+
+    Returns:
+        A frame with ``id``, ``name``, ``abbrev``, ``manager`` and
+        ``manager_email`` columns, one row per team, in file order.
+    """
     df = pd.read_csv(csv_path, skiprows=2, index_col=False, dtype=str)
     df = df[list(COLUMNS)].rename(columns=COLUMNS)
     df = df[df["name"].notna()].copy()
@@ -55,6 +79,8 @@ def load_teams(csv_path: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+# DDL for the league tables; ``teams_history`` keeps past seasons' names so
+# renamed teams can still be matched when importing old standings.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS managers (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -82,6 +108,18 @@ CREATE TABLE IF NOT EXISTS teams_history (
 
 
 def import_teams(csv_path: Path) -> int:
+    """Upsert managers and teams from the teams file.
+
+    Teams missing from the file are deleted, so the table mirrors the file.
+    Rows are updated in place rather than recreated to keep ``teams_history``
+    and its foreign keys intact.
+
+    Args:
+        csv_path: Path to ``teams.csv``.
+
+    Returns:
+        The number of teams in the file.
+    """
     teams = load_teams(csv_path)
     with db.connect() as conn:
         conn.executescript(SCHEMA)
@@ -108,6 +146,14 @@ def import_teams(csv_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments to parse instead of ``sys.argv[1:]`` (for tests).
+
+    Returns:
+        Process exit status: 0 on success, 1 on a missing file or database error.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--csv", type=Path, default=REPO_ROOT / "data" / "teams.csv")
     args = parser.parse_args(argv)
