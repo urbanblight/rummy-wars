@@ -97,7 +97,10 @@ def init_app(app):
         """Reject unsafe requests (and ``/add``) from non-admins, except open and team endpoints."""
         if request.endpoint in OPEN_ENDPOINTS or request.endpoint in TEAM_ENDPOINTS:
             return None
-        if not is_admin() and (request.method not in SAFE_METHODS or request.path == "/add"):
+        if not is_admin() and (
+            (request.method not in SAFE_METHODS and request.endpoint not in ("evaluate", "evaluate_team"))
+            or request.path == "/add"
+        ):
             abort(403)
 
     @app.context_processor
