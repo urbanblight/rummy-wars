@@ -410,7 +410,7 @@
   </dialog>
 {% endmacro %}
 
-{% macro news_modal_script() %}
+{% macro news_modal_script(lazy=false) %}
 <script>
   /**
    * News modal and badge scanner: loads recent headlines for a player on demand when a
@@ -536,7 +536,28 @@
         .then(flagNext);
     }
     /**
-     * Queues any icons not yet checked and starts workers up to the concurrency limit of 4.
+     * Starts workers up to the concurrency limit of 4.
+     *
+     * @returns {void}
+     */
+    function pump() {
+      while (running < 4 && queue.length > running) { running++; flagNext(); }
+    }
+    // On lazy pages, queues an icon's news check once its row scrolls into view. Otherwise (or
+    // without IntersectionObserver), every icon is checked immediately.
+    var viewObserver = {{ 'true' if lazy else 'false' }} && 'IntersectionObserver' in window
+      ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) { return; }
+          viewObserver.unobserve(entry.target);
+          queue.push(entry.target.newsIcon);
+        });
+        pump();
+      }, { rootMargin: '200px' })
+      : null;
+    /**
+     * Registers any icons not yet checked. Icons are observed via their table row (the flag
+     * button itself is hidden until news is found, so it has no layout box to intersect).
      * Safe to call repeatedly; the data-news-checked flag prevents duplicates.
      *
      * @returns {void}
@@ -544,9 +565,12 @@
     function scan() {
       document.querySelectorAll('.news-icon:not([data-news-checked])').forEach(function (icon) {
         icon.dataset.newsChecked = '1';
-        queue.push(icon);
+        if (!viewObserver) { queue.push(icon); return; }
+        var target = icon.closest('tr') || icon.parentElement;
+        target.newsIcon = icon;
+        viewObserver.observe(target);
       });
-      while (running < 4 && queue.length > running) { running++; flagNext(); }
+      pump();
     }
     scan();
     // Rescan when rows are added to the page (for example by infinite scroll).

@@ -79,7 +79,7 @@
 
 {% block scripts %}
 {{ advanced_modal_script() }}
-{{ news_modal_script() }}
+{{ news_modal_script(lazy=true) }}
 <script>
   /**
    * Prospects page: submits the filter forms as soon as a position or free-agent filter changes.

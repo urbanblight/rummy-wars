@@ -49,7 +49,7 @@
 
 {% block scripts %}
 {{ advanced_modal_script() }}
-{{ news_modal_script() }}
+{{ news_modal_script(lazy=true) }}
 <script>
   /**
    * Free agents page: filters by position, and loads further pages of players as the user
