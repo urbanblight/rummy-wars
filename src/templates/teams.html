@@ -18,7 +18,7 @@
     {% if teams %}
       <div class="table-wrap">
         <table>
-          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th><th class="num" title="Total SGP vs replacement of the players active in the latest lineup">Active SGP VR</th>{% for system in systems %}<th class="num" title="Total SGP vs replacement of the players active in the latest lineup, using {{ system.label }} projections">{{ system.label }}</th>{% endfor %}</tr></thead>
+          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th>{% if is_admin %}<th class="num" title="Total SGP vs replacement of the players active in the latest lineup">Active SGP VR</th>{% for system in systems %}<th class="num" title="Total SGP vs replacement of the players active in the latest lineup, using {{ system.label }} projections">{{ system.label }}</th>{% endfor %}{% endif %}</tr></thead>
           <tbody>
             {% for team in teams %}
               <tr>
@@ -26,11 +26,13 @@
                 <td><a class="team-link" href="{{ url_for('team', team_id=team.id) }}"><strong>{{ team.name }}</strong></a></td>
                 <td>{{ team.manager }}</td>
                 <td class="num">{{ team.total_points if team.total_points is not none }}</td>
+                {% if is_admin %}
                 <td class="num">{% if team.active_sgp_vr is not none %}<span class="{{ 'pos' if team.active_sgp_vr > 1 else ('neg' if team.active_sgp_vr < -1 else '') }}">{{ team.active_sgp_vr|signed }}</span>{% endif %}</td>
                 {% for system in systems %}
                   {% set value = (team.projected_sgp_vr or {}).get(system.key) %}
                   <td class="num">{% if value is not none %}<span class="{{ 'pos' if value > 1 else ('neg' if value < -1 else '') }}">{{ value|signed }}</span>{% endif %}</td>
                 {% endfor %}
+                {% endif %}
               </tr>
             {% endfor %}
           </tbody>

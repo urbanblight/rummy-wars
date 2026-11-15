@@ -845,6 +845,21 @@ def load_players(team_id: int | None, limit: int | None = None) -> dict[str, lis
 # Sort key used when the caller does not choose one: CBS's own player rank.
 FREE_AGENT_DEFAULT_SORT = "cbs"
 
+# Internal trusted sort key prefixes/labels used after validation.
+_SORT_STAT_PREFIX = "stat|"
+_SORT_NAME = "name"
+_SORT_BP = "bp"
+_SORT_CBS = "cbs"
+_SORT_RANK = "rank"
+_SORT_VR = "vr"
+_SORT_SIMPLE_KEYS = {
+    "name": _SORT_NAME,
+    "bp": _SORT_BP,
+    "cbs": _SORT_CBS,
+    "rank": _SORT_RANK,
+    "vr": _SORT_VR,
+}
+
 
 def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -> tuple[str, bool]:
     """Validate a free-agent sort key and direction, returning ``(key, descending)``.
@@ -864,16 +879,18 @@ def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -
         ValueError: For an unknown key or direction. Keys end up in SQL, so only whitelisted
             values may pass.
     """
-    key = sort or FREE_AGENT_DEFAULT_SORT
-    if key.startswith("stat:"):
-        category = key[5:]
+    raw_key = sort or FREE_AGENT_DEFAULT_SORT
+    if raw_key.startswith("stat:"):
+        category = raw_key[5:]
         if category not in scoring_categories(player_type):
-            raise ValueError(f"unknown sort {key!r}")
+            raise ValueError(f"unknown sort {raw_key!r}")
+        key = f"{_SORT_STAT_PREFIX}{category}"
         natural = category not in LOWER_IS_BETTER
-    elif key in ("name", "bp", "cbs", "rank", "vr"):
-        natural = key == "vr"
+    elif raw_key in _SORT_SIMPLE_KEYS:
+        key = _SORT_SIMPLE_KEYS[raw_key]
+        natural = key == _SORT_VR
     else:
-        raise ValueError(f"unknown sort {key!r}")
+        raise ValueError(f"unknown sort {raw_key!r}")
     if direction not in (None, "", "asc", "desc"):
         raise ValueError(f"unknown direction {direction!r}")
     return key, natural if not direction else direction == "desc"
@@ -881,15 +898,15 @@ def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -
 
 def _free_agent_sort_expression(player_type: str, key: str) -> str:
     """The SQL expression a free-agent sort key orders by."""
-    if key == "name":
+    if key == _SORT_NAME:
         return "name"
-    if key == "cbs":
+    if key == _SORT_CBS:
         return "`rank`"
-    if key == "rank":
+    if key == _SORT_RANK:
         return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
-    if key == "vr":
+    if key == _SORT_VR:
         return f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}"
-    category = key[5:]
+    category = key[len(_SORT_STAT_PREFIX):]
     if category == "W+QS":
         return "(W + QS)"
     if category == "Kd9":
@@ -955,8 +972,26 @@ def load_free_agents(
                 by_id = {r["player_id"]: r for r in rows}
                 rows = [by_id[i] for i in ids if i in by_id]
         else:
-            expression = _free_agent_sort_expression(player_type, key)
-            order = f"ORDER BY {expression} IS NULL, {expression} {'DESC' if descending else 'ASC'}, name LIMIT %s OFFSET %s"
+            direction_sql = "DESC" if descending else "ASC"
+            if key == "name":
+                order = f"ORDER BY name IS NULL, name {direction_sql}, name LIMIT %s OFFSET %s"
+            elif key == "cbs":
+                order = f"ORDER BY `rank` IS NULL, `rank` {direction_sql}, name LIMIT %s OFFSET %s"
+            elif key == "rank":
+                rank_col = f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}_rank"
+                order = f"ORDER BY {rank_col} IS NULL, {rank_col} {direction_sql}, name LIMIT %s OFFSET %s"
+            elif key == "vr":
+                vr_col = f"{sgp_column(TOTAL)}_{ABOVE_REPLACEMENT}"
+                order = f"ORDER BY {vr_col} IS NULL, {vr_col} {direction_sql}, name LIMIT %s OFFSET %s"
+            else:
+                category = key[5:]
+                if category == "W+QS":
+                    order = f"ORDER BY (W + QS) IS NULL, (W + QS) {direction_sql}, name LIMIT %s OFFSET %s"
+                elif category == "Kd9":
+                    order = f"ORDER BY (K * 9 / NULLIF(INNs, 0)) IS NULL, (K * 9 / NULLIF(INNs, 0)) {direction_sql}, name LIMIT %s OFFSET %s"
+                else:
+                    column = TABLES[player_type][1].get(category, category)
+                    order = f"ORDER BY `{column}` IS NULL, `{column}` {direction_sql}, name LIMIT %s OFFSET %s"
             rows = _read_table(conn, table, base + order, (*params, limit, offset))
         context = _score_context(rows, player_type) if rows is not None else None
     if not rows or context is None:

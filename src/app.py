@@ -159,6 +159,9 @@ def evaluate_upload(file_storage):
         roster = utils.parse_cbs_roster_csv(temporary_file.name)
         violations, warnings = utils.validate_league_rules(roster)
     zscores.evaluate_roster(roster)
+    for player in roster.players:
+        if not player.scoring_stats:
+            player.scoring_stats = dict(player.stats)
     return roster, violations, warnings
 
 

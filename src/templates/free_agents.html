@@ -93,7 +93,8 @@
           status.textContent = '';
         })
         .catch(function () {
-          status.textContent = 'Could not load more players. Scroll to retry.';
+          sentinel.hidden = true;
+          status.textContent = 'Could not load more players. Reload the page to retry.';
         })
         .finally(function () {
           loading = false;
