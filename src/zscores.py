@@ -881,8 +881,10 @@ def free_agent_sort(player_type: str, sort: str | None, direction: str | None) -
     """
     raw_key = sort or FREE_AGENT_DEFAULT_SORT
     if raw_key.startswith("stat:"):
-        category = raw_key[5:]
-        if category not in scoring_categories(player_type):
+        # Pick the league's own category name rather than echoing the request, so only trusted
+        # configuration values (never request text) can end up in the ORDER BY clause.
+        category = next((c for c in scoring_categories(player_type) if c == raw_key[5:]), None)
+        if category is None:
             raise ValueError(f"unknown sort {raw_key!r}")
         key = f"{_SORT_STAT_PREFIX}{category}"
         natural = category not in LOWER_IS_BETTER
