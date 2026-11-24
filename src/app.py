@@ -219,7 +219,22 @@ def player_news():
 def index():
     """Render the home page with the roster upload form."""
     offseason = MODE == "offseason"
-    return render_template("index.html", offseason=offseason)
+    managed_team_id = auth.get_managed_team_id()
+    managed_team = None
+    batters = []
+    pitchers = []
+
+    if managed_team_id is not None:
+        managed_team = league.get_team(managed_team_id)
+        if managed_team:
+            _lineup, players = zscores.load_team_roster(managed_team_id)
+            batters = players.get("Batter", [])
+            pitchers = players.get("Pitcher", [])
+
+    return render_template(
+        "index.html", offseason=offseason, managed_team=managed_team,
+        batters=batters, pitchers=pitchers,
+    )
 
 
 @app.get("/teams")

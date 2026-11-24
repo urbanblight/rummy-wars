@@ -3,6 +3,7 @@
 {% block title %}RUMMY WARS{% endblock %}
 
 {% from "_loading.html" import loading_screen %}
+{% from "_players.html" import player_table %}
 
 {% block body %}
   <main class="shell">
@@ -67,6 +68,17 @@
       </a>
       {% endif %}
     </div>
+
+    {% if managed_team %}
+    <section class="team-roster-panel">
+      <div>
+        <p class="panel-kicker">YOUR TEAM</p>
+        <h2>{{ managed_team.name }}</h2>
+        <p class="muted">Your current roster</p>
+      </div>
+      {{ player_table(batters + pitchers, show_roster=False, show_vr=False) }}
+    </section>
+    {% endif %}
 
     <section class="upload-panel" aria-labelledby="upload-title">
       <div>

@@ -86,6 +86,29 @@ def can_edit_team(team_id):
     return getattr(g, key)
 
 
+def get_managed_team_id():
+    """The team id that the current user manages, or None if they don't manage a team (cached per request)."""
+    if "managed_team_id" not in g:
+        try:
+            from . import db
+        except ImportError:  # pragma: no cover - supports direct module imports
+            import db
+
+        team_id = None
+        try:
+            email = current_user().strip().lower()
+            with db.connect() as conn:
+                row = conn.execute(
+                    "SELECT t.id FROM teams t JOIN managers m ON m.id = t.manager_id WHERE m.email = %s",
+                    (email,),
+                ).fetchone()
+            team_id = row[0] if row else None
+        except Exception:
+            pass
+        g.managed_team_id = team_id
+    return g.managed_team_id
+
+
 def init_app(app):
     """Register the write-restriction hook and template context on a Flask app.
 
