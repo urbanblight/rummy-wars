@@ -8,6 +8,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: rummy_wars_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: mysql+pymysql://root:test@127.0.0.1:3306/rummy_wars_test
     steps:
       - uses: actions/checkout@v6
 
@@ -23,7 +38,7 @@ jobs:
 
       - name: Run pytest with coverage
         run: |
-          pytest tests --cov=. --cov-report=xml
+          pytest tests --cov=. --cov-report=term-missing:skip-covered --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

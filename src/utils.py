@@ -151,15 +151,16 @@ def is_il(mlbam_player: dict) -> bool:
                 return placement_date > activation_date
         else:
             return False
-def get_mlb_latest_activation(mlbam_player: dict) -> str:
-    """Return the most recent date on which the player was activated from the IL.
+def get_mlb_latest_activation(mlbam_player: dict) -> tuple:
+    """Return the date and description of the player's latest IL activation.
 
     Args:
         mlbam_player: Dictionary-like MLB player payload containing transaction
             history.
 
     Returns:
-        A date string in YYYY-MM-DD format, or None if no activation is found.
+        A (date, description) tuple, with the date in YYYY-MM-DD format, or
+        (None, None) if no activation is found.
     """
     mlbam_player_id = mlbam_player.get("id")
     url = f"https://statsapi.mlb.com/api/v1/people/{mlbam_player_id}?hydrate=transactions,currentTeam"
@@ -176,14 +177,18 @@ def get_mlb_latest_activation(mlbam_player: dict) -> str:
         reverse=True
     )
     last_il_activation = None
+    last_il_txn_desc = None
 
     for txn in sorted_txns:
         desc = txn.get("description", "").lower()
         # Capture the most recent IL Activation
         if not last_il_activation and ("activated" in desc and "injured list" in desc):
             last_il_activation = txn
+            last_il_txn_desc = txn.get("description", "")
 
-    return last_il_activation.get("date") if last_il_activation else None
+    if not last_il_activation:
+        return None, None
+    return last_il_activation.get("date"), last_il_txn_desc
     
 def get_mlb_latest_callup(mlbam_id: str) -> str:
     """Return the most recent MLB promotion or recall date for a player.
@@ -418,7 +423,10 @@ def _check_minors_player_stats(
             try:
                 if stats['ab'] > MAX_MINORS_AB:
                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}"
+                    milb_msg = models.PlayerNotice(
+                        f"{player.name} is in a Minors slot but has more than than the league maximum ABs for Minors ({stats['ab']}). Most recent call up was {call_up_date}",
+                        player.name,
+                    )
                     if MODE == "offseason":
                         violations.append(milb_msg)
                     else:
@@ -431,7 +439,10 @@ def _check_minors_player_stats(
             try:
                 if stats['ip'] > MAX_MINORS_IP:
                     call_up_date = get_mlb_latest_callup(mlbam_player_id)
-                    milb_msg = f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}"
+                    milb_msg = models.PlayerNotice(
+                        f"{player.name} is in a Minors slot but has more than than the league maximum IPs for Minors ({stats['ip']}). Most recent call up was {call_up_date}",
+                        player.name,
+                    )
                     if MODE == "offseason":
                         violations.append(milb_msg)
                     else:
@@ -441,7 +452,9 @@ def _check_minors_player_stats(
             except Exception as e:  # noqa: BLE001
                 raise models.RummyWarsBaseError(f"Unable to determine total MLB IP for {player.name}: {e}")
         else:
-            unexpected_position_warning = f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}"
+            unexpected_position_warning = models.PlayerNotice(
+                f"{player.name} is identified as neither a pitcher nor a batter but rather a {player.player_type}", player.name
+            )
             warnings.append(unexpected_position_warning)
     else:
         LOGGER.debug(f"{player.name} found MLB API but no stats found")
@@ -513,8 +526,10 @@ def validate_league_rules(
         if is_il(mlbam_player):
             LOGGER.debug(f"{player.name} is placed in an Injured slot and is on the IL")
         else:
-            latest_activation_date = get_mlb_latest_activation(mlbam_player)
-            il_msg = f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}"
+            latest_activation_date, latest_activation_desc = get_mlb_latest_activation(mlbam_player)
+            il_msg = models.PlayerNotice(
+                f"{player.name} is placed in an Injured slot and was activated {latest_activation_date}: {latest_activation_desc}", player.name
+            )
             if MODE == "offseason":
                 violations.append(il_msg)
             else:

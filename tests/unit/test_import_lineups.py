@@ -1,0 +1,244 @@
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+import db  # noqa: E402
+import import_lineups  # noqa: E402
+import import_players  # noqa: E402
+
+LINEUP = '''Batters
+,Pos,Players, 0/0- 0/0,Proj,Actual,Rost,Start,BA,R,HR,RBI,SB,
+,C,"Liam Hicks C,1B | TB ","Home: 0
+Away: 0 ",452,102,94%,77%,0.284,66,18,82,3
+,DH,Michael Harris II CF | ATL ,"Home: 0
+Away: 0 ",116,29,99%,92%,0.294,79,26,87,12
+,,,,,,,,0.289,145,44,169,15
+Reserves
+, DH,Garrett Mitchell CF | MIL ,"Home: 0
+Away: 0 ",310,132,38%,27%,0.263,74,11,65,14
+Injured
+Minors
+,SS,Caleb Bonemer SS | CHW ,"Home: 0
+Away: 0 ",N/A,N/A,8%,0%,0.000,0,0,0,0
+Pitchers
+,Pos,Players, 0/0- 0/0,Proj,Actual,Rost,Start,ERA,WHIP,W,K,S,
+,SP,Bubba Chandler SP | PIT ,"Home: 0
+Away: 0 ",505,475,69%,38%,4.62,1.40,8,140,0
+,RP,"Jacob Latz SP,RP | TEX ","Home: 0
+Away: 0 ",411,121,86%,76%,2.12,0.81,3,83,30
+Reserves
+,RP,Rico Garcia RP | BAL ,"Home: 0
+Away: 0 ",725,294,23%,19%,3.09,0.97,5,68,10
+Active: 20 Reserve: 7 Injured: 8 Minors: 20
+'''
+
+
+def make_db(conn):
+    conn.execute("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(255))")
+    conn.executemany("INSERT INTO teams VALUES (%s, %s)", [(7, "The Outfield"), (8, "Wheatus")])
+    conn.executescript(import_players.SCHEMA)
+    conn.execute(
+        "INSERT INTO players (player_id, name, cbs_name, team, pos, active) VALUES "
+        "('hicksli01', 'Liam Hicks', 'Liam Hicks', 'TB', 'C', 1), "
+        "('harrimi04', 'Michael Harris II', 'Michael Harris', 'ATL', 'OF', 1)"
+    )
+    import_lineups.ensure_schema(conn)
+    return conn
+
+
+def test_parse_filename_reads_offseason_and_inseason_names():
+    assert import_lineups.parse_filename("roster-overview-7-20260928.csv") == import_lineups.LineupFile(7, None, "2026-09-28")
+    assert import_lineups.parse_filename("roster-overview-16-12-20260928.csv") == import_lineups.LineupFile(16, 12, "2026-09-28")
+
+
+@pytest.mark.parametrize("name", [
+    "roster-overview-7.csv", "roster-7-20260928.csv", "roster-overview-7-20260928.txt", "roster-overview-7-20261340.csv",
+])
+def test_parse_filename_rejects_other_names_and_impossible_dates(name):
+    with pytest.raises(ValueError):
+        import_lineups.parse_filename(name)
+
+
+def test_parse_lineup_reads_every_player_with_type_status_and_slot():
+    players = import_lineups.parse_lineup(LINEUP)
+
+    assert [(p["player_type"], p["status"], p["slot"], p["name"]) for p in players] == [
+        ("Batter", "Active", "C", "Liam Hicks"),
+        ("Batter", "Active", "DH", "Michael Harris II"),
+        ("Batter", "Reserves", "DH", "Garrett Mitchell"),
+        ("Batter", "Minors", "SS", "Caleb Bonemer"),
+        ("Pitcher", "Active", "SP", "Bubba Chandler"),
+        ("Pitcher", "Active", "RP", "Jacob Latz"),
+        ("Pitcher", "Reserves", "RP", "Rico Garcia"),
+    ]
+    assert [p["slot_order"] for p in players] == list(range(1, 8))
+    hicks = players[0]
+    assert (hicks["positions"], hicks["mlb_team"]) == ("C,1B", "TB")
+    assert (hicks["proj_rank"], hicks["actual_rank"], hicks["rostered_pct"], hicks["started_pct"]) == (452, 102, 94.0, 77.0)
+    assert players[5]["positions"] == "SP,RP"
+
+
+def test_parse_lineup_treats_missing_ranks_as_null():
+    bonemer = import_lineups.parse_lineup(LINEUP)[3]
+    assert (bonemer["proj_rank"], bonemer["actual_rank"]) == (None, None)
+    assert bonemer["rostered_pct"] == 8.0
+
+
+def test_parse_lineup_rejects_empty_or_unreadable_files():
+    with pytest.raises(ValueError):
+        import_lineups.parse_lineup("Batters\n,Pos,Players\n")
+    with pytest.raises(ValueError):
+        import_lineups.parse_lineup("Batters\n,C,not a player cell,x,1,2,3%,4%\n")
+
+
+def test_import_lineup_replaces_the_same_lineup_and_keeps_others(tmp_path, conn):
+    make_db(conn)
+    offseason = tmp_path / "roster-overview-7-20260928.csv"
+    inseason = tmp_path / "roster-overview-7-12-20260928.csv"
+    other_team = tmp_path / "roster-overview-8-20260928.csv"
+    for path in (offseason, inseason, other_team):
+        path.write_text(LINEUP)
+
+    for path in (offseason, inseason, other_team, offseason):
+        import_lineups.import_lineup(path, conn)
+
+    rows = conn.execute("SELECT team_id, period_id, COUNT(*) FROM lineups GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+    assert rows == [(7, None, 7), (7, 12, 7), (8, None, 7)]
+
+
+def test_import_lineup_stores_canonical_player_ids_and_null_for_unknown_players(tmp_path, conn):
+    make_db(conn)
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+
+    import_lineups.import_lineup(path, conn)
+
+    ids = dict(conn.execute("SELECT name, player_id FROM lineups"))
+    assert ids["Liam Hicks"] == "hicksli01"
+    assert ids["Michael Harris II"] == "harrimi04"  # CBS adds the suffix the map drops
+    assert ids["Bubba Chandler"] is None
+
+
+def test_import_lineup_records_when_it_was_captured_apart_from_the_effective_date(tmp_path, conn):
+    make_db(conn)
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+
+    import_lineups.import_lineup(path, conn)
+
+    dates = conn.execute("SELECT DISTINCT effective_date, captured_at FROM lineups").fetchall()
+    assert len(dates) == 1
+    effective, captured = dates[0]
+    assert effective == "2026-09-28"
+    assert datetime.fromisoformat(captured).utcoffset() == timedelta(0)
+    assert abs(datetime.now(timezone.utc) - datetime.fromisoformat(captured)) < timedelta(minutes=1)
+
+
+def test_ensure_schema_adds_captured_at_to_an_existing_lineups_table(conn):
+    make_db(conn)
+    conn.execute("ALTER TABLE lineups DROP COLUMN captured_at")
+    import_lineups.ensure_schema(conn)
+    assert "captured_at" in db.column_names(conn, "lineups")
+
+
+def test_ensure_schema_rebuilds_a_lineups_table_without_player_ids(conn):
+    make_db(conn)
+    conn.execute("DROP TABLE lineups")
+    conn.execute("CREATE TABLE lineups (norm_name VARCHAR(255))")
+    import_lineups.ensure_schema(conn)
+    assert "player_id" in db.column_names(conn, "lineups")
+
+
+def test_import_lineup_needs_the_players_table(tmp_path, conn):
+    conn.execute("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(255))")
+    path = tmp_path / "roster-overview-7-20260928.csv"
+    path.write_text(LINEUP)
+    with pytest.raises(RuntimeError, match="import_players"):
+        import_lineups.import_lineup(path, conn)
+
+
+def test_import_lineup_requires_a_known_team(tmp_path, conn):
+    make_db(conn)
+    path = tmp_path / "roster-overview-99-20260928.csv"
+    path.write_text(LINEUP)
+
+    with pytest.raises(ValueError, match="no team with id 99"):
+        import_lineups.import_lineup(path, conn)
+
+
+def test_find_files_expands_folders_and_skips_other_csvs(tmp_path):
+    (tmp_path / "roster-overview-7-20260928.csv").write_text("")
+    (tmp_path / "notes.csv").write_text("")
+
+    files, skipped = import_lineups.find_files([tmp_path])
+
+    assert [f.name for f in files] == ["roster-overview-7-20260928.csv"]
+    assert [f.name for f in skipped] == ["notes.csv"]
+
+
+def test_main_imports_a_folder_and_reports_errors(tmp_path, conn, capsys):
+    make_db(conn)
+    conn.commit()
+    folder = tmp_path / "lineups"
+    folder.mkdir()
+    (folder / "roster-overview-7-20260928.csv").write_text(LINEUP)
+
+    assert import_lineups.main([str(folder)]) == 0
+    assert "Team 7 (offseason, 2026-09-28): 7 players" in capsys.readouterr().out
+
+    (folder / "roster-overview-99-20260928.csv").write_text(LINEUP)
+    assert import_lineups.main([str(folder)]) == 1
+    assert "no team with id 99" in capsys.readouterr().err
+
+
+def test_parse_team_filename_forms():
+    from import_lineups import LineupFile, parse_team_filename
+
+    assert parse_team_filename("roster-overview-20250914.csv", 7) == LineupFile(7, None, "2025-09-14")
+    assert parse_team_filename("roster-overview-12-20250914.csv", 7) == LineupFile(7, 12, "2025-09-14")
+    for bad in ("roster-overview-3-12-20250914.csv", "roster-overview-20251345.csv", "lineup.csv"):
+        with pytest.raises(ValueError):
+            parse_team_filename(bad, 7)
+
+
+def test_parse_lineup_skips_blank_lines_and_rows():
+    text = LINEUP.replace("Batters\n", "\nBatters\n\n   ,  \n", 1)
+    assert len(import_lineups.parse_lineup(text)) == 7
+
+
+def test_parse_lineup_rejects_a_player_before_any_section_heading():
+    with pytest.raises(ValueError, match="before any section heading"):
+        import_lineups.parse_lineup(",C,Liam Hicks C | TB ,x,1,2,3%,4%\n")
+
+
+def test_find_files_keeps_explicit_file_paths_even_if_misnamed(tmp_path):
+    explicit = tmp_path / "anything.csv"
+
+    files, skipped = import_lineups.find_files([explicit])
+
+    assert files == [explicit]
+    assert skipped == []
+
+
+def test_main_reports_skipped_files_and_no_files(tmp_path, capsys):
+    folder = tmp_path / "lineups"
+    folder.mkdir()
+    (folder / "notes.csv").write_text("")
+
+    assert import_lineups.main([str(folder)]) == 1
+    err = capsys.readouterr().err
+    assert "Skipping notes.csv" in err
+    assert "No lineup files found" in err
+
+
+def test_main_reports_a_missing_input_file(tmp_path, conn, capsys):
+    make_db(conn)
+    conn.commit()
+
+    assert import_lineups.main([str(tmp_path / "roster-overview-7-20260928.csv")]) == 1
+    assert "Missing input file" in capsys.readouterr().err

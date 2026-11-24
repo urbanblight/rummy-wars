@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}RUMMY WARS Teams{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / TEAMS</p>
+        <h1>Teams</h1>
+        <p class="muted">
+          {% if snapshot %}Ordered by the {{ snapshot.season_year }} standings (as of {{ snapshot.as_of_date }}).{% else %}No standings imported yet.{% endif %}
+        </p>
+      </div>
+      <a class="text-link" href="{{ url_for('index') }}">Home <span aria-hidden="true">-></span></a>
+    </header>
+
+    {% if teams %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="num">Rank</th><th>Team</th><th>Manager</th><th class="num">Points</th>{% if is_admin %}<th class="num" title="Total SGP vs replacement of the players active in the latest lineup">Active SGP VR</th>{% for system in systems %}<th class="num" title="Total SGP vs replacement of the players active in the latest lineup, using {{ system.label }} projections">{{ system.label }}</th>{% endfor %}{% endif %}</tr></thead>
+          <tbody>
+            {% for team in teams %}
+              <tr>
+                <td class="num">{{ team.rank if team.rank is not none }}</td>
+                <td><a class="team-link" href="{{ url_for('team', team_id=team.id) }}"><strong>{{ team.name }}</strong></a></td>
+                <td>{{ team.manager }}</td>
+                <td class="num">{{ team.total_points if team.total_points is not none }}</td>
+                {% if is_admin %}
+                <td class="num">{% if team.active_sgp_vr is not none %}<span class="{{ 'pos' if team.active_sgp_vr > 1 else ('neg' if team.active_sgp_vr < -1 else '') }}">{{ team.active_sgp_vr|signed }}</span>{% endif %}</td>
+                {% for system in systems %}
+                  {% set value = (team.projected_sgp_vr or {}).get(system.key) %}
+                  <td class="num">{% if value is not none %}<span class="{{ 'pos' if value > 1 else ('neg' if value < -1 else '') }}">{{ value|signed }}</span>{% endif %}</td>
+                {% endfor %}
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No team data yet. Run scripts/refresh.py.</p>
+    {% endif %}
+  </main>
+{% endblock %}

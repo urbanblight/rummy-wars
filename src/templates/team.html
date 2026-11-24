@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% from "_players.html" import player_table, status_accordion, advanced_modal, advanced_modal_script, news_modal, news_modal_script with context %}
+{% from "_loading.html" import loading_screen %}
+
+{% block title %}RUMMY WARS {{ team.name }}{% endblock %}
+
+{% block body %}
+  <main class="shell results-shell">
+    <header class="results-header">
+      <div>
+        <p class="eyebrow"><a href="{{ url_for('index') }}">RUMMY WARS</a> / TEAMS</p>
+        <h1>{{ team.name }}</h1>
+        <p class="muted">
+          {{ team.manager }}{% if team.rank is not none %} &middot; #{{ team.rank }} in the {{ snapshot.season_year }} standings with {{ team.total_points }} points{% endif %}
+        </p>
+      </div>
+      <a class="text-link" href="{{ url_for('teams') }}">All teams <span aria-hidden="true">-></span></a>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="alert {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    {% if can_edit_team(team.id) %}
+      <section class="upload-panel evaluate-panel" aria-labelledby="lineup-upload-title">
+        <div>
+          <p class="panel-kicker">LINEUP</p>
+          <h2 id="lineup-upload-title">Update this lineup</h2>
+          <p class="muted">Upload a CBS roster overview CSV named <code>roster-overview-&lt;date&gt;.csv</code> (offseason) or <code>roster-overview-&lt;period&gt;-&lt;date&gt;.csv</code>, with the date as YYYYMMDD; the name picks which period's lineup is replaced, so earlier periods can be corrected too. Uploading the same lineup again replaces it rather than adding to it.</p>
+        </div>
+        <form action="{{ url_for('upload_lineup', team_id=team.id) }}" method="post" enctype="multipart/form-data">
+          <label class="file-drop" for="lineup-file">
+            <span class="file-icon" aria-hidden="true">+</span>
+            <span><strong>Choose lineup CSV</strong><small id="lineup-file-name">CBS roster overview export</small></span>
+          </label>
+          <input id="lineup-file" name="lineup" type="file" accept=".csv,text/csv" required>
+          <script>
+            // Show the chosen lineup file name, or the default hint if the selection was cleared.
+            document.querySelector('#lineup-file').addEventListener('change', (event) => {
+              const file = event.target.files[0];
+              document.querySelector('#lineup-file-name').textContent = file ? file.name : 'CBS roster overview export';
+            });
+          </script>
+          <button type="submit">Upload lineup <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+    {% endif %}
+
+    {% if lineup %}
+      <section class="upload-panel evaluate-panel" aria-labelledby="evaluate-title">
+        <div>
+          <p class="panel-kicker">ROSTER EVALUATOR</p>
+          <h2 id="evaluate-title">Check this lineup</h2>
+          <p class="muted">Evaluate the lineup as of {{ lineup_as_of(lineup) }} against the league's roster limits and player eligibility rules, just like an uploaded roster.</p>
+        </div>
+        <form id="evaluate-form" action="{{ url_for('evaluate_team', team_id=team.id) }}" method="post">
+          <button type="submit">Evaluate lineup <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="roster-section" aria-labelledby="roster-title">
+      <h2 id="roster-title">Players</h2>
+      <div class="roster-meta">
+        {% if lineup %}<p class="muted">Lineup as of {{ lineup_as_of(lineup) }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>{% endif %}
+        {% if is_admin %}
+        <form id="stats-source-form" method="get" action="{{ url_for('team', team_id=team.id) }}">
+          <select class="stats-source" name="stats" aria-label="Stats source">
+            <option value=""{% if not stat_source %} selected{% endif %}>Season to Date</option>
+            {% for source in stat_sources %}<option value="{{ source.key }}"{% if source.key == stat_source %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
+          </select>
+          <noscript><button type="submit">Show stats</button></noscript>
+        </form>
+        {% endif %}
+      </div>
+      {% if lineup %}
+        {% set all_players = batters + pitchers %}
+        {% set active_batters = batters|selectattr('status', 'equalto', 'Active')|list %}
+        {% set active_pitchers = pitchers|selectattr('status', 'equalto', 'Active')|list %}
+        {% set batter_reserves = batters|selectattr('status', 'equalto', 'Reserves')|list %}
+        {% set batter_injured = batters|selectattr('status', 'equalto', 'Injured')|list %}
+        {% set batter_minors = batters|selectattr('status', 'equalto', 'Minors')|list %}
+        {% set pitcher_reserves = pitchers|selectattr('status', 'equalto', 'Reserves')|list %}
+        {% set pitcher_injured = pitchers|selectattr('status', 'equalto', 'Injured')|list %}
+        {% set pitcher_minors = pitchers|selectattr('status', 'equalto', 'Minors')|list %}
+        {% set other_players = all_players|rejectattr('status', 'equalto', 'Active')|rejectattr('status', 'equalto', 'Reserves')|rejectattr('status', 'equalto', 'Injured')|rejectattr('status', 'equalto', 'Minors')|list %}
+      {% else %}
+        {% set active_batters = batters %}
+        {% set active_pitchers = pitchers %}
+      {% endif %}
+      <section aria-labelledby="batters-title">
+        <h3 id="batters-title">Batters ({{ active_batters|length }})</h3>
+        {{ player_table(active_batters, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
+        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+      </section>
+      <section aria-labelledby="pitchers-title">
+        <h3 id="pitchers-title">Pitchers ({{ active_pitchers|length }})</h3>
+        {{ player_table(active_pitchers, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
+        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
+      </section>
+      {% if lineup and other_players %}
+        <section aria-labelledby="other-players-title">
+          <h3 id="other-players-title">Other players ({{ other_players|length }})</h3>
+          {{ player_table(other_players, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
+        </section>
+      {% endif %}
+    </section>
+  </main>
+
+  {{ advanced_modal() }}
+  {{ news_modal() }}
+  {% if lineup %}{{ loading_screen(offseason, "this team's latest lineup") }}{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ advanced_modal_script() }}
+{{ news_modal_script() }}
+<script>
+  /**
+   * Team page: submits the stats source form as soon as a source is selected,
+   * so the page needs no explicit submit button.
+   */
+  document.querySelectorAll('select.stats-source').forEach(function (select) {
+    select.addEventListener('change', function () { select.form.submit(); });
+  });
+</script>
+{% if lineup %}
+<script>
+  /**
+   * Team page: on evaluate, shows the loading screen and disables the button to prevent
+   * duplicate submissions while the lineup is evaluated.
+   */
+  document.querySelector('#evaluate-form').addEventListener('submit', function (event) {
+    document.querySelector('#loading-screen').hidden = false;
+    event.target.querySelector('button').disabled = true;
+  });
+</script>
+{% endif %}
+{% endblock %}
