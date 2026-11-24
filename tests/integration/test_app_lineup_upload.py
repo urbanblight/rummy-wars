@@ -76,3 +76,13 @@ def test_upload_database_failure_flashes_a_generic_message():
         response = post_lineup(client, {"lineup": (io.BytesIO(b"x"), "roster-overview-20250914.csv")})
     assert response.status_code == 302
     assert flashed(client)[0] == ("error", "The lineup could not be saved. Check the server log for details.")
+
+
+def test_index_shows_the_managed_teams_roster():
+    with patch("app.auth.get_managed_team_id", return_value=3), \
+            patch("app.league.get_team", return_value={"id": 3, "name": "Test Team"}), \
+            patch("app.zscores.load_team_roster", return_value=(None, {"Batter": [], "Pitcher": []})) as load:
+        response = app.test_client().get("/")
+    assert response.status_code == 200
+    assert b"Test Team" in response.data
+    load.assert_called_once_with(3)
