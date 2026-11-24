@@ -24,6 +24,62 @@ class Player:
     status: str             # 'Active', 'Reserves', 'Injured', 'Minors'
     player_type: str        # 'Batter' or 'Pitcher'
     stats: dict[str, float | None] = field(default_factory=dict)
+    player_id: str | None = None  # canonical id from the players table; None until resolved
+    # Season values for the league's scoring categories, from the stats database.
+    scoring_stats: dict[str, float | None] = field(default_factory=dict)
+    cbs_rank: int | None = None  # CBS's own player rank; None if CBS leaves the player unranked
+    z_scores: dict[str, float] = field(default_factory=dict)
+    z_ranks: dict[str, int] = field(default_factory=dict)
+    z_total: float | None = None
+    z_total_rank: int | None = None
+    sgp: dict[str, float] = field(default_factory=dict)
+    sgp_ranks: dict[str, int] = field(default_factory=dict)
+    sgp_total: float | None = None
+    sgp_total_rank: int | None = None
+    # {"total" or category: (value, rank)} for the player's best eligible position, or None.
+    z_above_replacement: dict[str, tuple[float, int] | None] = field(default_factory=dict)
+    sgp_above_replacement: dict[str, tuple[float, int] | None] = field(default_factory=dict)
+
+    def advanced_payload(self) -> dict:
+        """Z-score, SGP and above-replacement data in league category order, for the results-page modal."""
+
+        def repl(values: dict, key: str) -> tuple[float | None, int | None]:
+            """The (value, rank) above replacement for ``key``, or blanks when absent."""
+            return values.get(key) or (None, None)
+
+        def entry(key: str, z, z_rank, sgp, sgp_rank) -> dict:
+            """Build one row of the modal payload for ``key`` (``total`` or a category)."""
+            z_repl, z_repl_rank = repl(self.z_above_replacement, key)
+            sgp_repl, sgp_repl_rank = repl(self.sgp_above_replacement, key)
+            return {
+                "z": z, "z_rank": z_rank, "sgp": sgp, "sgp_rank": sgp_rank,
+                "z_repl": z_repl, "z_repl_rank": z_repl_rank,
+                "sgp_repl": sgp_repl, "sgp_repl_rank": sgp_repl_rank,
+            }
+
+        return {
+            "total": entry("total", self.z_total, self.z_total_rank, self.sgp_total, self.sgp_total_rank),
+            "cats": [
+                {"cat": cat, **entry(cat, z, self.z_ranks.get(cat), self.sgp.get(cat), self.sgp_ranks.get(cat))}
+                for cat, z in self.z_scores.items()
+            ],
+        }
+
+
+class PlayerNotice(str):
+    """A violation or warning message that remembers which player it is about.
+
+    It is an ordinary string everywhere (so existing callers and comparisons keep
+    working) with the player's name in ``player``.
+    """
+
+    player: str
+
+    def __new__(cls, message: str, player: str) -> PlayerNotice:
+        """Create the notice text and attach the player it concerns."""
+        notice = super().__new__(cls, message)
+        notice.player = player
+        return notice
 
 
 @dataclass
@@ -37,11 +93,13 @@ class RummyWarsBaseError(Exception):
     default_message: str = "An unexpected application error occurred."
 
     def __init__(self, message: str | None = None, code: str | None = None):
+        """Store the message (or the class default) and an optional error code."""
         self.message = message or self.default_message
         self.code = code
         super().__init__(self.message)
 
     def __str__(self) -> str:
+        """The message, prefixed with ``[code]`` when a code was given."""
         if self.code:
             return f"[{self.code}] {self.message}"
         return self.message

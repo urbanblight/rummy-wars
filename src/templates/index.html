@@ -2,6 +2,8 @@
 
 {% block title %}RUMMY WARS{% endblock %}
 
+{% from "_loading.html" import loading_screen %}
+
 {% block body %}
   <main class="shell">
     <section class="intro">
@@ -38,6 +40,32 @@
         </span>
         <span aria-hidden="true">→</span>
       </a>
+
+      <a class="constitution-link" href="{{ url_for('teams') }}">
+        <span>
+          <small>LEAGUE TEAMS</small>
+          <strong>Teams and rosters by the most recent standings</strong>
+        </span>
+        <span aria-hidden="true">→</span>
+      </a>
+
+      <a class="constitution-link" href="{{ url_for('free_agents') }}">
+        <span>
+          <small>FREE AGENTS</small>
+          <strong>Available players by CBS rank</strong>
+        </span>
+        <span aria-hidden="true">→</span>
+      </a>
+
+      {% if is_admin %}
+      <a class="constitution-link" href="{{ url_for('prospects_page') }}">
+        <span>
+          <small>PROSPECTS</small>
+          <strong>Prospect rankings from various sources</strong>
+        </span>
+        <span aria-hidden="true">→</span>
+      </a>
+      {% endif %}
     </div>
 
     <section class="upload-panel" aria-labelledby="upload-title">
@@ -63,49 +91,26 @@
     {% endwith %}
   </main>
 
-  <div class="loading-screen" id="loading-screen" hidden aria-live="polite" aria-busy="true">
-    <div class="loading-card" role="status">
-      <div class="baseball-loader" aria-hidden="true">
-        {% if offseason %}
-          <div class="stovetop">
-            <span class="burner"></span>
-            <span class="burner"></span>
-            <span class="burner"></span>
-            <span class="burner"></span>
-          </div>
-          <span class="coffee">☕</span>
-        {% else %}
-          <div class="diamond">
-            <span class="base first"></span>
-            <span class="base second"></span>
-            <span class="base third"></span>
-            <span class="base home"></span>
-          </div>
-          <span class="ball">⚾</span>
-        {% endif %}
-      </div>
-      <p class="eyebrow">Checking roster limits and player eligibility</p>
-      {% if offseason %}
-        <h2>Hot Stove Roster Evaluation in Progress</h2>
-      {% else %}
-        <h2>In-Season Roster Evaluation in Progress</h2>
-      {% endif %}
-      <p class="loading-copy">Comparing the uploaded roster against the MLB Stats API and generating notifications<span class="loading-dots" aria-hidden="true">...</span></p>
-    </div>
-  </div>
+  {{ loading_screen(offseason, "the uploaded roster") }}
 {% endblock %}
 
 {% block scripts %}
   <script>
+    /**
+     * Roster upload page: shows the chosen file name in the drop zone, and on submit shows the
+     * loading screen and disables the button to prevent duplicate uploads.
+     */
     const rosterInput = document.querySelector('#roster');
     const rosterForm = document.querySelector('form');
     const loadingScreen = document.querySelector('#loading-screen');
 
+    // Show the selected file name, or the default hint if the selection was cleared.
     rosterInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       document.querySelector('#file-name').textContent = file ? file.name : 'CBS roster CSV, up to 5 MB';
     });
 
+    // Disable the button on submit so a double click can't upload twice.
     rosterForm.addEventListener('submit', () => {
       loadingScreen.hidden = false;
       rosterForm.querySelector('button').disabled = true;
