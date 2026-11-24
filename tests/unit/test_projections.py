@@ -1,3 +1,4 @@
+import db
 import models
 import projections
 
@@ -72,3 +73,13 @@ def test_scores_are_calculated_for_projections_and_shown_without_a_cbs_rank(conn
     assert best.z_total > 0 and best.z_total_rank == 1
     assert best.z_above_replacement["total"][0] > 0
     assert best.scoring_stats["HR"] == 35
+
+
+def test_scores_are_skipped_for_a_player_type_whose_tables_are_missing(conn, monkeypatch):
+    # Set the categories explicitly: CI has no ``.env``, so nothing else would get past the "no categories" skip.
+    monkeypatch.setenv("BATTING_SCORING_CATEGORIES", "HR")
+    monkeypatch.setenv("PITCHING_SCORING_CATEGORIES", "")
+
+    projections.save_projection_scores()
+
+    assert not db.table_exists(conn, "batting_projection_scores")
