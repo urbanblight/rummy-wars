@@ -112,3 +112,23 @@ def test_write_restrictions(flask_app):
             patch("auth.current_user", return_value="admin@example.com"):
         assert client.post("/write").status_code == 200
         assert client.get("/add").status_code == 200
+
+
+def test_get_managed_team_id_finds_the_users_team_and_caches_it(flask_app):
+    with flask_app.test_request_context("/read"), patch("auth.current_user", return_value=" M@Example.com "), \
+            patch("db.connect") as connect:
+        execute = connect.return_value.__enter__.return_value.execute
+        execute.return_value.fetchone.return_value = (7,)
+        assert auth.get_managed_team_id() == 7
+        assert auth.get_managed_team_id() == 7
+        assert execute.call_count == 1
+        assert execute.call_args.args[1] == ("m@example.com",)
+
+
+def test_get_managed_team_id_is_none_without_a_team_or_identity(flask_app):
+    with flask_app.test_request_context("/read"), patch("auth.current_user", return_value="x@example.com"), \
+            patch("db.connect") as connect:
+        connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = None
+        assert auth.get_managed_team_id() is None
+    with flask_app.test_request_context("/read"), patch("auth.current_user", side_effect=Unauthorized()):
+        assert auth.get_managed_team_id() is None

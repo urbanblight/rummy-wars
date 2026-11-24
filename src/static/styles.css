@@ -1389,3 +1389,7 @@ td.num .neg {
 #player-modal-meta {
   margin: 4px 0 0;
 }
+
+.plain-link {
+  color: inherit;
+}

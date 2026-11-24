@@ -61,56 +61,7 @@
       </section>
     {% endif %}
 
-    <section class="roster-section" aria-labelledby="roster-title">
-      <h2 id="roster-title">Players</h2>
-      <div class="roster-meta">
-        {% if lineup %}<p class="muted">Lineup as of {{ lineup_as_of(lineup) }}{% if lineup.period_id is none %} (offseason){% else %} (period {{ lineup.period_id }}){% endif %}.</p>{% endif %}
-        {% if is_admin %}
-        <form id="stats-source-form" method="get" action="{{ url_for('team', team_id=team.id) }}">
-          <select class="stats-source" name="stats" aria-label="Stats source">
-            <option value=""{% if not stat_source %} selected{% endif %}>Season to Date</option>
-            {% for source in stat_sources %}<option value="{{ source.key }}"{% if source.key == stat_source %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
-          </select>
-          <noscript><button type="submit">Show stats</button></noscript>
-        </form>
-        {% endif %}
-      </div>
-      {% if lineup %}
-        {% set all_players = batters + pitchers %}
-        {% set active_batters = batters|selectattr('status', 'equalto', 'Active')|list %}
-        {% set active_pitchers = pitchers|selectattr('status', 'equalto', 'Active')|list %}
-        {% set batter_reserves = batters|selectattr('status', 'equalto', 'Reserves')|list %}
-        {% set batter_injured = batters|selectattr('status', 'equalto', 'Injured')|list %}
-        {% set batter_minors = batters|selectattr('status', 'equalto', 'Minors')|list %}
-        {% set pitcher_reserves = pitchers|selectattr('status', 'equalto', 'Reserves')|list %}
-        {% set pitcher_injured = pitchers|selectattr('status', 'equalto', 'Injured')|list %}
-        {% set pitcher_minors = pitchers|selectattr('status', 'equalto', 'Minors')|list %}
-        {% set other_players = all_players|rejectattr('status', 'equalto', 'Active')|rejectattr('status', 'equalto', 'Reserves')|rejectattr('status', 'equalto', 'Injured')|rejectattr('status', 'equalto', 'Minors')|list %}
-      {% else %}
-        {% set active_batters = batters %}
-        {% set active_pitchers = pitchers %}
-      {% endif %}
-      <section aria-labelledby="batters-title">
-        <h3 id="batters-title">Batters ({{ active_batters|length }})</h3>
-        {{ player_table(active_batters, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
-        {% if lineup %}{{ status_accordion(batter_reserves, "Batter", "Reserves", "Reserve batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_injured, "Batter", "Injured", "Injured batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-        {% if lineup %}{{ status_accordion(batter_minors, "Batter", "Minors", "Minor league batters", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-      </section>
-      <section aria-labelledby="pitchers-title">
-        <h3 id="pitchers-title">Pitchers ({{ active_pitchers|length }})</h3>
-        {{ player_table(active_pitchers, show_roster=lineup is not none, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
-        {% if lineup %}{{ status_accordion(pitcher_reserves, "Pitcher", "Reserves", "Reserve pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_injured, "Pitcher", "Injured", "Injured pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-        {% if lineup %}{{ status_accordion(pitcher_minors, "Pitcher", "Minors", "Minor league pitchers", show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}{% endif %}
-      </section>
-      {% if lineup and other_players %}
-        <section aria-labelledby="other-players-title">
-          <h3 id="other-players-title">Other players ({{ other_players|length }})</h3>
-          {{ player_table(other_players, show_rank=is_admin, color_stats=is_admin, show_vr=is_admin) }}
-        </section>
-      {% endif %}
-    </section>
+    {% include "_team_roster.html" %}
   </main>
 
   {{ advanced_modal() }}
