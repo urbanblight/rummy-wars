@@ -220,20 +220,15 @@ def index():
     """Render the home page with the roster upload form."""
     offseason = MODE == "offseason"
     managed_team_id = auth.get_managed_team_id()
-    managed_team = None
-    batters = []
-    pitchers = []
-
-    if managed_team_id is not None:
-        managed_team = league.get_team(managed_team_id)
-        if managed_team:
-            _lineup, players = zscores.load_team_roster(managed_team_id)
-            batters = players.get("Batter", [])
-            pitchers = players.get("Pitcher", [])
+    managed_team = league.get_team(managed_team_id) if managed_team_id is not None else None
+    lineup, batters, pitchers = None, [], []
+    if managed_team:
+        lineup, players = zscores.load_team_roster(managed_team_id)
+        batters, pitchers = players["Batter"], players["Pitcher"]
 
     return render_template(
         "index.html", offseason=offseason, managed_team=managed_team,
-        batters=batters, pitchers=pitchers,
+        lineup=lineup, batters=batters, pitchers=pitchers,
     )
 
 

@@ -3,7 +3,7 @@
 {% block title %}RUMMY WARS{% endblock %}
 
 {% from "_loading.html" import loading_screen %}
-{% from "_players.html" import player_table %}
+{% from "_players.html" import advanced_modal, advanced_modal_script, news_modal, news_modal_script with context %}
 
 {% block body %}
   <main class="shell">
@@ -70,14 +70,10 @@
     </div>
 
     {% if managed_team %}
-    <section class="team-roster-panel">
-      <div>
-        <p class="panel-kicker">YOUR TEAM</p>
-        <h2>{{ managed_team.name }}</h2>
-        <p class="muted">Your current roster</p>
-      </div>
-      {{ player_table(batters + pitchers, show_roster=False, show_vr=False) }}
-    </section>
+      <p class="panel-kicker">YOUR TEAM</p>
+      <h2><a class="plain-link" href="{{ url_for('team', team_id=managed_team.id) }}">{{ managed_team.name }}</a></h2>
+      {% set team = managed_team %}
+      {% include "_team_roster.html" %}
     {% endif %}
 
     <section class="upload-panel" aria-labelledby="upload-title">
@@ -104,9 +100,11 @@
   </main>
 
   {{ loading_screen(offseason, "the uploaded roster") }}
+  {% if managed_team %}{{ advanced_modal() }}{{ news_modal() }}{% endif %}
 {% endblock %}
 
 {% block scripts %}
+  {% if managed_team %}{{ advanced_modal_script() }}{{ news_modal_script() }}{% endif %}
   <script>
     /**
      * Roster upload page: shows the chosen file name in the drop zone, and on submit shows the
